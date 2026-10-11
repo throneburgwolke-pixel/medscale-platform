@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 医学量表与问卷平台 · 自动备份（一次性任务本体，由 medscale-backup.timer 触发）
+#
+# 安装位置：/etc/systemd/system/medscale-backup.service
+#
+# 不建议手工执行这个 unit —— 手工补一次备份请直接跑：
+#   sudo -u medscale MEDSCALE_DB=/var/lib/medscale/app.db node /opt/medscale/deploy/backup-cli.js --keep 30
+# ─────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=医学量表与问卷平台 · 数据库快照
+After=medscale.service
+
+[Service]
+Type=oneshot
+User=medscale
+Group=medscale
+WorkingDirectory=/opt/medscale
+EnvironmentFile=/etc/medscale.env
+
+# 保留最近 30 份。每天一份 ≈ 一个月，足够覆盖「发现数据不对但还没意识到是哪天开始」的场景。
+ExecStart=/usr/bin/node deploy/backup-cli.js --keep 30
+
+# 与主服务同样的读代码 + 写数据目录的约束
+ProtectSystem=strict
+ReadWritePaths=/var/lib/medscale
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=medscale-backup

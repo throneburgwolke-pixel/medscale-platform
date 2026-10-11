@@ -1,0 +1,52 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 医学量表与问卷平台 · Caddy 反向代理 + 自动 HTTPS
+#
+# 这条配置只负责三件事：
+#   1. 用 Let's Encrypt 自动申请并续期 TLS 证书（首次启动后约 10 秒内签发）
+#   2. 终止 TLS，把请求转发给只听本机的应用 127.0.0.1:5173
+#   3. 保留真实来源 IP 与协议（Caddy 会默认写入 X-Forwarded-For / X-Forwarded-Proto）
+#
+# ⚠️ 应用侧必须同时设 MEDSCALE_TRUST_PROXY=1，否则上面那两个头一律不认。
+#    这是刻意的防伪造设计：谁都能自己加一个 X-Forwarded-For 去绕过登录限流。
+#
+# 安装位置：/etc/caddy/Caddyfile
+# deploy/install.sh 会把 scales.example.com 与 admin@example.com 替换成你填的值。
+# ─────────────────────────────────────────────────────────────────────────────
+
+{
+	# 证书到期提醒、ACME 账户找回用；install.sh 会替换掉
+	email admin@example.com
+}
+
+# install.sh 会把这一行替换成你的域名
+scales.example.com {
+	# 静态资源体积小、压缩收益明显；应用侧已带 ETag，压缩不会破坏 304
+	encode zstd gzip
+
+	# 应用自身的请求体上限是 20 MB（量表导入、备份恢复），这里留 4 MB 余量。
+	# 设小了会让「恢复一份较大的备份」直接返回 413。
+	request_body {
+		max_size 24MB
+	}
+
+	# 端口与应用的 PORT 必须一致。改了这里也要同步改 /etc/medscale.env。
+	reverse_proxy 127.0.0.1:5173
+
+	header {
+		# CSP / X-Frame-Options / X-Content-Type-Options / X-Robots-Tag / HSTS
+		# 一律由应用自己下发，这里不重复添加：
+		# 重复的头浏览器只取第一个，出问题时极难排查。
+		# 这里只抹掉代理自身暴露的版本信息。
+		-Server
+	}
+
+	log {
+		# 写到文件而不是 journald，方便直接 grep 某个受试者的填写链接被访问过几次。
+		output file /var/log/caddy/medscale.log {
+			roll_size 20MiB
+			roll_keep 10
+			roll_keep_for 30d
+		}
+		format json
+	}
+}

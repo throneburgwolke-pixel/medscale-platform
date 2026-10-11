@@ -1,0 +1,14 @@
+# 构建上下文瘦身：镜像里只放「运行期真正会读到的文件」。
+#
+# 注意 docs/ 不能整个排掉：docs/使用说明.md 会被 server.js 在运行期读出来，
+# 通过 /api/guide.md 发给任何访客（网页上「下载完整使用说明」按钮）。
+# 只排掉 docs/superpowers（内部设计文档，运行时不读）。
+node_modules/
+data/
+test/
+.git/
+.workbuddy/
+docs/superpowers/
+.DS_Store
+*.command
+*.log

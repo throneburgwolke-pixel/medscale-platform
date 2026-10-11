@@ -1,0 +1,20 @@
+node_modules/
+data/
+test/*.db
+test/*.db-wal
+test/*.db-shm
+*.log
+.DS_Store
+test/backups/
+test/shots/
+test/运行地址.txt
+.superpowers/
+
+# AI 协作的内部工作记录与设计草稿，不属于代码本身
+.workbuddy/
+docs/superpowers/
+*.bak
+
+
+# 首次启动随机生成的管理员初始口令文件（本地凭证，不入库）
+管理员初始口令.txt

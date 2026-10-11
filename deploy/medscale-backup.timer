@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 医学量表与问卷平台 · 自动备份定时器
+#
+# 安装位置：/etc/systemd/system/medscale-backup.timer
+# 启用：    sudo systemctl daemon-reload && sudo systemctl enable --now medscale-backup.timer
+# 查看下次时间：systemctl list-timers medscale-backup.timer
+# ─────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=每天凌晨为医学量表与问卷平台做一次数据库快照
+
+[Timer]
+# 03:15 是刻意的低峰：避开每小时整点（很多云监控、日志轮转都卡在整点，
+# 磁盘 IO 会打架）。快照走 VACUUM INTO，大库也只需几秒。
+OnCalendar=*-*-* 03:15:00
+
+# 机器当时关机 / 重启错过了这个点，开机后补跑一次。
+# 没有这一条，宕机那天的备份就是永久空白。
+Persistent=true
+
+# 随机抖 10 分钟，避免多台机器同时打快照撞在同一秒
+RandomizedDelaySec=10min
+
+Unit=medscale-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 医学量表与问卷平台 · 容器版反向代理配置
+#
+# 与 deploy/Caddyfile 的唯一区别：上游不是 127.0.0.1（那是宿主机视角），
+# 而是 compose 里的服务名 medscale。
+#
+# 域名走环境变量，由 docker-compose.yml 里的 MEDSCALE_DOMAIN 传入。
+# ─────────────────────────────────────────────────────────────────────────────
+
+{
+	email {$MEDSCALE_EMAIL}
+}
+
+{$MEDSCALE_DOMAIN} {
+	encode zstd gzip
+
+	# 应用侧请求体上限 20 MB（量表导入、备份恢复），留 4 MB 余量
+	request_body {
+		max_size 24MB
+	}
+
+	reverse_proxy medscale:5173
+
+	header {
+		# 安全头一律由应用自己下发（CSP / X-Frame-Options / nosniff /
+		# X-Robots-Tag / HSTS），这里不重复添加，避免出现重复头难以排查。
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

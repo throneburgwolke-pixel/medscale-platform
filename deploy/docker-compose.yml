@@ -1,0 +1,98 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 医学量表与问卷平台 · docker compose（备选方案）
+#
+# 用法：
+#   cp deploy/docker.env.example deploy/docker.env    # 改掉里面的管理员口令
+#   MEDSCALE_DOMAIN=scales.example.com MEDSCALE_EMAIL=you@example.com \
+#     docker compose -f deploy/docker-compose.yml --env-file deploy/docker.env up -d
+#
+#   docker compose -f deploy/docker-compose.yml logs -f medscale
+#   docker compose -f deploy/docker-compose.yml down
+#
+# ⚠️ 注意 build.context 是仓库根目录（..），这样 .dockerignore 才生效。
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  medscale:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: medscale:1.0
+    container_name: medscale
+    restart: unless-stopped
+    env_file:
+      - docker.env
+    volumes:
+      # 数据卷。数据库、backups/、运行地址.txt 全在这里，删容器不丢数据。
+      - medscale-data:/data
+    # 只绑本机回环：公网入口只有 Caddy 的 443，5173 绝不对外。
+    ports:
+      - "127.0.0.1:5173:5173"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: medscale-caddy
+    restart: unless-stopped
+    depends_on:
+      - medscale
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"      # HTTP/3
+    environment:
+      # 没有默认值，必须传：域名不对 Caddy 会一直申请证书失败
+      MEDSCALE_DOMAIN: ${MEDSCALE_DOMAIN:?请传 MEDSCALE_DOMAIN，例如 scales.example.com}
+      MEDSCALE_EMAIL: ${MEDSCALE_EMAIL:-admin@${MEDSCALE_DOMAIN}}
+    volumes:
+      - ./Caddyfile.docker:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data      # 证书存在这里，别删，否则每次重建都要重新签发
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # 每天凌晨做一次快照，等价于宿主机版的 medscale-backup.timer。
+  # 这里用「同一个镜像跑 backup-cli.js」，所以不需要额外装任何东西。
+  backup:
+    image: medscale:1.0
+    container_name: medscale-backup
+    restart: unless-stopped
+    env_file:
+      - docker.env
+    volumes:
+      - medscale-data:/data
+    entrypoint: ["/bin/sh", "-c"]
+    # 睡到下一个 03:15 再跑，然后循环。刻意不用 GNU date -d（alpine 里没有），
+    # 改成纯算术，busybox 的 sh 也能跑。
+    command:
+      - |
+        while true; do
+          h=$$(date +%H); m=$$(date +%M); s=$$(date +%S)
+          h=$${h#0}; m=$${m#0}; s=$${s#0}
+          now=$$(( $${h:-0} * 3600 + $${m:-0} * 60 + $${s:-0} ))
+          wait=$$(( 3 * 3600 + 15 * 60 - now ))
+          [ $$wait -le 0 ] && wait=$$((wait + 86400))
+          sleep $$wait
+          echo "[backup] $$(date '+%F %T') 开始"
+          node /app/deploy/backup-cli.js --keep 30 --label nightly || echo "[backup] 失败，见上面的输出"
+        done
+    depends_on:
+      - medscale
+
+volumes:
+  medscale-data:
+  caddy-data:
+  caddy-config:

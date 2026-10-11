@@ -1,0 +1,19 @@
+{
+  "name": "medscale",
+  "version": "1.0.0",
+  "private": true,
+  "description": "医学量表与问卷平台：量表库、问卷自制、扫码发放、数据回收、自动计分与统计分析（零依赖）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/contrast_test.js && node test/a11y_test.js && node test/scales_test.js && node test/core_schema_test.js && node test/core_kdf_test.js && node test/core_db_adapter_test.js && node test/core_http_test.js && node test/core_services_test.js && node test/core_auth_test.js && node test/core_registry_test.js && node test/port_test.js && node test/auth_test.js && node test/hardening_test.js && node test/invite_test.js && node test/cluster_test.js && node test/headers_test.js && node test/ownership_test.js && node test/privacy_test.js && node test/backup_test.js && node test/hygiene_test.js && node test/frontend_test.js && node test/landing_polish_test.js && node test/api_test.js && node test/advanced_test.js && node test/narrative_test.js && node test/import_test.js && node test/ui_test.js && node test/stability_test.js",
+    "audit": "node test/layout_audit.js && node test/dashboard_test.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.2",
+    "playwright": "^1.64.0"
+  }
+}
