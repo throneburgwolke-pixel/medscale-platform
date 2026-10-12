@@ -1,0 +1,28 @@
+# Render 部署蓝图（Infrastructure as Code）
+# 用法：Render 控制台 → New → Blueprint → 关联本 GitHub 仓库 → 应用即可一次性创建
+#       服务 + 持久卷，之后每次 git push 到 main 自动重新部署。
+# 本应用零第三方运行时依赖（仅用 Node 内置 node:sqlite），故构建只装生产依赖即可，
+# 跳过 playwright 等开发依赖的浏览器下载。
+
+services:
+  - type: web
+    name: medscale-platform
+    runtime: node
+    plan: free                       # 轻量免费档；长期高并发请升 standard
+    region: oregon                   # 可改 singapore / frankfurt，选离用户近的区
+    branch: main
+    nodeVersion: "22"                # 必须 ≥ 22.5（node:sqlite 稳定版）
+    buildCommand: "npm ci --omit=dev"
+    startCommand: "node server.js"
+    healthCheckPath: "/healthz"
+    envVars:
+      - key: HOST
+        value: "0.0.0.0"             # 容器外反向代理要访问，必须绑 0.0.0.0
+      - key: MEDSCALE_DB
+        value: "/var/data/medscale/app.db"   # 数据库落在持久卷，实例重启不丢数据
+      - key: MEDSCALE_PASSWORD       # 首次在 Render 控制台手动设 12 位以上强口令
+        sync: false                  # sync:false = 不写进仓库，部署时由你填
+    disks:
+      - name: medscale-data
+        mountPath: /var/data
+        sizeGB: 1
