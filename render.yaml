@@ -1,28 +1,36 @@
 # Render 部署蓝图（Infrastructure as Code）
-# 用法：Render 控制台 → New → Blueprint → 关联本 GitHub 仓库 → 应用即可一次性创建
-#       服务 + 持久卷，之后每次 git push 到 main 自动重新部署。
-# 本应用零第三方运行时依赖（仅用 Node 内置 node:sqlite），故构建只装生产依赖即可，
-# 跳过 playwright 等开发依赖的浏览器下载。
+# 用法：Render 控制台 → New → Blueprint → 关联本 GitHub 仓库 → 应用即可一次性创建服务。
+#       本应用零第三方运行时依赖（仅用 Node 内置 node:sqlite），构建只装生产依赖即可，
+#       跳过 playwright 等开发依赖的浏览器下载。
+#
+# 重要：本蓝图使用免费档（plan: free）。免费档【不挂载持久盘】，数据库写在容器内的临时
+#       文件系统（项目根目录 data/app.db），服务重启 / 重新部署后数据会被清空。仅适合试用
+#       或演示。若要数据持久化，请把 plan 改为 starter（约 $7/月），并取消注释末尾的 disk
+#       块，同时把 MEDSCALE_DB 指回持久盘挂载点。
 
 services:
   - type: web
     name: medscale-platform
     runtime: node
-    plan: free                       # 轻量免费档；长期高并发请升 standard
+    plan: free                       # 轻量免费档；重启会清空数据；需持久化请改 starter
     region: oregon                   # 可改 singapore / frankfurt，选离用户近的区
     branch: main
-    nodeVersion: "22"                # 必须 ≥ 22.5（node:sqlite 稳定版）
     buildCommand: "npm ci --omit=dev"
     startCommand: "node server.js"
     healthCheckPath: "/healthz"
     envVars:
       - key: HOST
         value: "0.0.0.0"             # 容器外反向代理要访问，必须绑 0.0.0.0
-      - key: MEDSCALE_DB
-        value: "/var/data/medscale/app.db"   # 数据库落在持久卷，实例重启不丢数据
+      - key: NODE_VERSION
+        value: "22"                  # 必须 ≥ 22.5（node:sqlite 稳定版）；package.json engines 已声明
       - key: MEDSCALE_PASSWORD       # 首次在 Render 控制台手动设 12 位以上强口令
         sync: false                  # sync:false = 不写进仓库，部署时由你填
-    disks:
-      - name: medscale-data
-        mountPath: /var/data
-        sizeGB: 1
+
+# 付费档（starter 起）持久化示例（免费档不支持，故默认注释）：
+# disks:
+#   - name: medscale-data
+#     mountPath: /var/data
+#     sizeGB: 1
+#   envVars 中需补：
+#   - key: MEDSCALE_DB
+#     value: "/var/data/medscale/app.db"
