@@ -20,7 +20,7 @@
 
 ### 方式 1：用 `render.yaml` 蓝图（推荐，一步到位）
 
-仓库根目录已放好 `render.yaml`，它会一次性声明「Web 服务 + 1GB 持久卷 + 环境变量」：
+仓库根目录已放好 `render.yaml`，它会一次性声明「Web 服务 + 环境变量」（当前为免费档，未挂持久盘，数据库落在容器内临时文件系统，重启会清空；需持久化见文末说明）：
 
 1. Render 控制台 → **New** → **Blueprint**
 2. 关联 GitHub 账号，选中仓库 `medscale-platform`
@@ -36,13 +36,13 @@
    - **Build Command**：`npm ci --omit=dev`
    - **Start Command**：`node server.js`
    - **Health Check Path**：`/healthz`
-   - **Instance Type**：Free
+   - **Instance Type**：Free（轻量免费档，**重启 / 重新部署会清空数据**，仅试用）
    - **Node Version**：22（Settings → Environment 里设，必须 ≥ 22.5）
-3. **Environment** 里加两个变量：
+3. **Environment** 里加变量：
    - `HOST` = `0.0.0.0`
-   - `MEDSCALE_DB` = `/var/data/medscale/app.db`
    - `MEDSCALE_PASSWORD` = 你的强口令（12 位以上）
-4. **Disks** 里新建一个卷：`mountPath` 填 `/var/data`，大小 `1 GB`（SQLite 库必须落在此卷，否则重启丢数据）
+   - `MEDSCALE_DB` 留空即可（默认值 `data/app.db`，落在容器内临时文件系统；免费档无持久盘，故无需、也不能设成 `/var/data/...`）
+4. **Disks**：免费档**不支持**挂载持久盘，本步跳过。如需数据持久化，把 Instance Type 升到 **Starter**（约 $7/月），再在 Disks 新建卷 `mountPath=/var/data`、大小 `1 GB`，并把 `MEDSCALE_DB` 设为 `/var/data/medscale/app.db`。
 5. 创建并等待部署
 
 ## 三、上线后怎么用
