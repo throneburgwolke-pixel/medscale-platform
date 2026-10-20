@@ -10,12 +10,14 @@ preview_urls = true
 [assets]
 directory = "./public"
 binding = "ASSETS"
+# 静态资源默认由资产服务器直出、不经过 Worker，安全响应头就加不上；必须先跑 Worker
+run_worker_first = true
 
 # D1 边缘 SQLite（免费档：每天 500 万行读 / 10 万行写，足够内部问卷平台）
 [[d1_databases]]
 binding = "DB"
 database_name = "medscale"
-# 占位 ID；用 `wrangler d1 create medscale` 创建后把返回的 id 填到这里（远程部署时）
+# 由 `wrangler d1 create medscale` 创建；换账号部署时创建自己的库并替换此 ID
 database_id = "3de7e210-2c98-44c7-a709-9d8747084411"
 
 [vars]

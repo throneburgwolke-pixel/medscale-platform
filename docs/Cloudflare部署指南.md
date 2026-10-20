@@ -159,6 +159,7 @@ https://medscale-platform.<你的子域>.workers.dev
 | 页面一直「⏳ 加载中」不渲染 | 前端缺 `/logic.js`（app.js 依赖它）。Workers 只上传 `public/`，Node 版是 server.js 动态提供 `/logic.js`。**解决：`npm run sync:logic` 把 `lib/logic.js` 复制到 `public/logic.js` 再部署**；以后改过 `lib/logic.js` 也要重新同步 |
 | 部署/修复后浏览器行为没变 | 浏览器缓存了旧 HTML/资源。**强制刷新（Mac：⌘⇧R）或开无痕窗口**验证 |
 | `wrangler deploy` 报 `database_id` 无效 | 第 16 行没填真实 id，或 id 复制错了（应是 UUID 格式）                               |
+| `wrangler@latest deploy` 卡在 `Running autoconfig detection` 不动 | 4.151.2 的回归；改用已验证可部署的版本：`npx wrangler@4.151.1 deploy`（其他子命令同理） |
 | 部署后打开白屏                              | 多半 `wrangler.toml` 的 `[assets]` 路径不对；本工程已是 `./public`，一般没问题。看终端报错 |
 | 登录提示「密码错误」                           | 若用超级管理员口令登录，用户名必须**留空**；若用注册账号，用注册时的用户名+密码                        |
 | 注册提示「请填写邀请码」                         | 你不是第一个用户了（已有账号存在）。用已有管理员登录后在「系统设置」生成邀请码，或直接用超级管理员口令登录             |
@@ -171,7 +172,7 @@ https://medscale-platform.<你的子域>.workers.dev
 
 ```bash
 cd /Users/fuzhuzhijia/Desktop/医学量表与问卷平台
-npx wrangler@latest d1 execute medscale --remote --file=core/schema.sql   # 若需重建表（会清空！慎用）
+npx wrangler@latest d1 execute medscale --remote --file=core/schema.sql   # 可重复执行：只补表/索引，不覆盖数据
 npx wrangler@latest secret list              # 查看已设的 secret
 npx wrangler@latest deploy                    # 改了代码后重新部署
 ```

@@ -115,6 +115,11 @@ function makeAssets() {
     return { status: res.status, headers: res.headers, text: text, json: json };
   }
 
+  console.log('\n【0】部署配置：静态资源也要经过 Worker');
+  const wranglerToml = fs.readFileSync(path.join(ROOT, 'wrangler.toml'), 'utf8');
+  ok(/run_worker_first\s*=\s*true/.test(wranglerToml),
+    'run_worker_first = true：否则首页/JS 由资产服务器直出，CSP 等安全头不会生效');
+
   console.log('\n【准备】初始化 D1 并注册首个管理员');
   const boot = await call('POST', '/api/register', { username: 'admin_t', password: 'secret123' });
   ok(boot.status === 200, '首个注册用户成功（bootstrap）', boot.status);
