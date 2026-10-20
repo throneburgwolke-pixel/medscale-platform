@@ -21,6 +21,16 @@ t.ok(tables.length >= 10, '空库执行 schema.sql 得到全部表', tables);
 const cols = mem.prepare('PRAGMA table_info(surveys)').all().map((c) => c.name);
 t.ok(cols.includes('study_id') && cols.includes('owner_id'), '新库 surveys 直接带 study_id/owner_id');
 
+console.log('\n【2b】热点查询有索引');
+const indexes = mem.prepare("SELECT tbl_name, sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL").all();
+function hasIndex(table, col) {
+  return indexes.some((i) => i.tbl_name === table && new RegExp('\\b' + col + '\\b').test(i.sql));
+}
+t.ok(hasIndex('surveys', 'study_id'), 'surveys(study_id)：随访研究按研究查时点');
+t.ok(hasIndex('responses', 'subject_id'), 'responses(subject_id)：按受试者编号配对');
+t.ok(hasIndex('sessions', 'expires_at'), 'sessions(expires_at)：过期会话清理');
+t.ok(hasIndex('sessions', 'user_id'), 'sessions(user_id)：停用/删除用户时清理会话');
+
 console.log('\n【3】lib/db.js 用同一份文件');
 process.env.MEDSCALE_DB = path.join(__dirname, 'core_schema_test.db');
 ['', '-wal', '-shm'].forEach((s) => { const p = process.env.MEDSCALE_DB + s; if (fs.existsSync(p)) fs.unlinkSync(p); });

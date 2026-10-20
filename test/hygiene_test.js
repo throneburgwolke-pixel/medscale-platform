@@ -44,7 +44,7 @@ function walk(dir, out) {
 
   console.log('\n【3】不留个人机器路径');
   const personal = [];
-  walk('test', []).concat(['public/app.js', 'server.js']).forEach(function (rel) {
+  walk('test', []).concat(['public/app.js', 'public/common.js', 'public/fill.js', 'server.js']).forEach(function (rel) {
     if (/\/Users\/|\/home\/[a-z]/.test(read(rel))) personal.push(rel);
   });
   t.ok(personal.length === 0, '测试与前端不写死某个人电脑上的目录', personal.join(', '));

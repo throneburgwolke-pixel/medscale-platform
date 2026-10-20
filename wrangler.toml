@@ -1,0 +1,25 @@
+name = "medscale-platform"
+main = "worker.js"
+compatibility_date = "2025-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 显式开启版本预览地址（消除 wrangler 关于 preview_urls 的默认警告；不需要就改成 false）
+preview_urls = true
+
+# 静态资源（前端 public/）由 Cloudflare 边缘直接托管，API 请求回 Worker
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# D1 边缘 SQLite（免费档：每天 500 万行读 / 10 万行写，足够内部问卷平台）
+[[d1_databases]]
+binding = "DB"
+database_name = "medscale"
+# 占位 ID；用 `wrangler d1 create medscale` 创建后把返回的 id 填到这里（远程部署时）
+database_id = "3de7e210-2c98-44c7-a709-9d8747084411"
+
+[vars]
+# 标记走 D1 后端（保留字段，便于将来扩展）
+MEDSCALE_BACKEND = "d1"
+# 可选：部署时设置管理员初始口令，避免随机口令；也可部署后到「系统设置」修改
+# MEDSCALE_PASSWORD = "改成你自己的强口令"

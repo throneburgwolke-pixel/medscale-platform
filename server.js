@@ -281,8 +281,10 @@ function visibleFor(list, v) {
 function peerIp(req, trust) {
   const useProxy = trust === undefined ? TRUST_PROXY : !!trust;
   const xf = req && req.headers ? req.headers['x-forwarded-for'] : null;
-  const ip = useProxy && xf
-    ? String(xf).split(',')[0].trim()
+  // 每级代理把"上一跳地址"追加到右侧；只有最右侧才是紧邻代理写入、不可由客户端伪造的
+  const hops = xf ? String(xf).split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
+  const ip = useProxy && hops.length
+    ? hops[hops.length - 1]
     : ((req && req.socket && req.socket.remoteAddress) || '');
   return String(ip || '').replace(/^::ffff:/, '');
 }
@@ -576,12 +578,22 @@ route('POST', '/api/logout', function (ctx) {
 }, { public: true });
 
 route('POST', '/api/password', async function (ctx) {
+  if (!requireAdmin(ctx)) return;
+  const limitKey = peerIp(ctx.req) + '|admin-pw-change';
+  const rl = dbLimit(limitKey, AUTH_MAX_FAILS, AUTH_WINDOW_MS);
+  if (!rl.allowed) {
+    dbm.log('password_throttled', limitKey);
+    return sendJson(ctx.res, 429, { error: '尝试次数过多，请 ' + rl.retryAfterSec + ' 秒后再试' }, {
+      'Retry-After': String(rl.retryAfterSec),
+    });
+  }
   const body = await readBody(ctx.req);
   if (!checkPassword(body.oldPassword)) return sendJson(ctx.res, 400, { error: '原密码错误' });
   if (!body.newPassword || String(body.newPassword).length < 6) {
     return sendJson(ctx.res, 400, { error: '新密码至少 6 位' });
   }
   dbm.setAdminPassword(body.newPassword);
+  dbLimit.reset(limitKey);
   sessionStore.clear();
   dbm.log('password_changed', '');
   sendJson(ctx.res, 200, { ok: true });
@@ -1387,7 +1399,8 @@ function serveStatic(req, res, pathname) {
     return true;
   }
   let rel = pathname === '/' ? '/index.html' : pathname;
-  if (rel.indexOf('/s/') === 0) rel = '/index.html';
+  // 受试者填写页走轻量入口：只加载 logic/common/fill，不下载管理端 app.js
+  if (rel.indexOf('/s/') === 0) rel = '/fill.html';
   const filePath = path.join(PUBLIC_DIR, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
   if (!filePath.startsWith(PUBLIC_DIR) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     return false;

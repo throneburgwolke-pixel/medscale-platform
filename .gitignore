@@ -18,3 +18,12 @@ docs/superpowers/
 
 # 首次启动随机生成的管理员初始口令文件（本地凭证，不入库）
 管理员初始口令.txt
+
+# Cloudflare Workers 本地状态 / 构建产物（非源码）
+.wrangler/
+
+# WorkBuddy 临时产物
+.wbapp_*.genie
+
+# 由「同步发布目录.command」生成的发布副本（源码以仓库为准，不入库）
+线上发布/

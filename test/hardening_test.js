@@ -37,6 +37,9 @@ function call(name) {
   t.ok(typeof srv.peerIp === 'function', 'server.js 导出 peerIp');
   t.ok(call('peerIp', req, false) === '127.0.0.1', '未开启代理信任时忽略 XFF', call('peerIp', req, false));
   t.ok(call('peerIp', req, true) === '203.0.113.9', '显式开启代理信任后采用 XFF', call('peerIp', req, true));
+  const chained = { headers: { 'x-forwarded-for': '1.2.3.4, 198.51.100.7' }, socket: { remoteAddress: '127.0.0.1' } };
+  t.ok(call('peerIp', chained, true) === '198.51.100.7',
+    '多级代理时取最右侧（可信代理追加的）地址，左侧客户端可伪造', call('peerIp', chained, true));
 
   console.log('\n【3】限流器行为');
   const lim = call('createRateLimiter');

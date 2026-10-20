@@ -112,10 +112,13 @@ const call = function (name) {
 
   console.log('\n【7】前端产物不依赖内联脚本（否则 CSP 会拦掉）');
   const appJs = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
+  const fillJs = fs.readFileSync(path.join(ROOT, 'public', 'fill.js'), 'utf8');
   const html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+  const fillHtml = fs.readFileSync(path.join(ROOT, 'public', 'fill.html'), 'utf8');
   t.ok(!/\son[a-z]+="/.test(appJs), 'app.js 生成的 HTML 里没有内联事件处理器', (/\son[a-z]+="[^"]{0,40}/.exec(appJs) || [''])[0]);
-  t.ok(html.indexOf('<script>') < 0, 'index.html 只用外链脚本');
-  t.ok(appJs.indexOf('<script') < 0, '弹窗写入的文档里没有内联脚本', appJs.slice(appJs.indexOf('<script') - 40, appJs.indexOf('<script') + 40));
+  t.ok(!/\son[a-z]+="/.test(fillJs), 'fill.js 生成的 HTML 里没有内联事件处理器');
+  t.ok(html.indexOf('<script>') < 0 && fillHtml.indexOf('<script>') < 0, '入口 HTML 只用外链脚本');
+  t.ok(appJs.indexOf('<script') < 0 && fillJs.indexOf('<script') < 0, '弹窗写入的文档里没有内联脚本');
 
   console.log('\n【8】允许收录是可显式打开的开关');
   t.ok(call('securityHeaders', { indexable: true })['X-Robots-Tag'] === undefined, '开关打开时不发 noindex');

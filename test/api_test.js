@@ -259,9 +259,10 @@ function request(method, url, body, headers) {
     'SPSS 数值版导出为数值编码（含 0/1 虚拟变量）');
   r = await request('GET', '/api/surveys/2/codebook.csv');
   ok(r.status === 200 && r.text.indexOf('变量名') >= 0 && r.text.indexOf('取值说明') >= 0, '变量说明（codebook）可导出');
-  r = await request('GET', '/api/surveys/2/report?group=' + (rep2.items.find(function (i) { return i.itemId === 'phq1'; }) ? 'phq1' : 'phq1'));
-  ok(r.json.groupComparison && r.json.groupComparison.groupCandidates !== undefined,
-    '报告支持指定分组变量');
+  r = await request('GET', '/api/surveys/2/report?group=phq1');
+  ok(r.json.groupComparison && r.json.groupComparison.available === false &&
+    Array.isArray(r.json.groupComparison.groupCandidates) && r.json.groupComparison.groupCandidates.length === 0,
+    '计分条目不能当分组变量：候选为空、组间比较不可用', r.json.groupComparison && r.json.groupComparison.groupCandidates);
   ok(r.json.quality && r.json.quality.duration && r.json.quality.straightLining !== undefined,
     '报告包含数据质量分析（时长、直线作答、重复 IP）');
   ok(Array.isArray(r.json.trend), '报告包含按日回收趋势');

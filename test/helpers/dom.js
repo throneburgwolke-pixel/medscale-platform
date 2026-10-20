@@ -29,6 +29,8 @@ function reasonUnavailable() {
 function makeDom(srv, cookieStore, opts) {
   const url = (opts && opts.url) || 'http://localhost:5173/';
   const APP_JS = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
+  const COMMON_JS = fs.readFileSync(path.join(ROOT, 'public', 'common.js'), 'utf8');
+  const FILL_JS = fs.readFileSync(path.join(ROOT, 'public', 'fill.js'), 'utf8');
   const LOGIC_JS = fs.readFileSync(path.join(ROOT, 'lib', 'logic.js'), 'utf8');
   const INDEX_HTML = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
   const CSS = fs.readFileSync(path.join(ROOT, 'public', 'styles.css'), 'utf8');
@@ -94,9 +96,14 @@ function makeDom(srv, cookieStore, opts) {
   // jsdom 不实现滚动：记录调用，供锚点定位断言
   w.__scrolls = [];
   w.Element.prototype.scrollIntoView = function (opt) { w.__scrolls.push({ id: this.id, opt: opt }); };
-  // 与浏览器一致：先加载共享模块（跳题引擎 + 分类清单），再加载 app.js
+  // 与浏览器一致：共享模块 → common.js；/s/ 填写入口只加载 fill.js，其余加载 app.js（+ 懒加载的 fill.js）。
+  // jsdom 的多次 eval 不共享顶层 const，所以所有脚本合并成一次 eval（等价于多个 <script>）。
   w.eval(LOGIC_JS);
-  w.eval(APP_JS);
+  if (new URL(url).pathname.indexOf('/s/') === 0) {
+    w.eval(COMMON_JS + '\n' + FILL_JS);
+  } else {
+    w.eval(COMMON_JS + '\n' + FILL_JS + '\n' + APP_JS);
+  }
   return { dom: dom, w: w, d: w.document, css: CSS, rawRequest: rawRequest };
 }
 

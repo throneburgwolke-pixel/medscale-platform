@@ -21,6 +21,12 @@ if (!dom.available()) {
 }
 
 (async function run() {
+  // /logic.js 在 Node 版由 server.js 动态读 lib/logic.js，Workers 版读 public/logic.js 的副本：
+  // 两份必须字节一致，否则线上跳题/分类行为会与本地分叉。
+  t.ok(fs.readFileSync(path.join(ROOT, 'lib', 'logic.js'), 'utf8') ===
+    fs.readFileSync(path.join(ROOT, 'public', 'logic.js'), 'utf8'),
+    'public/logic.js 与 lib/logic.js 保持一致（npm run sync:logic）');
+
   // 登录/注册在首页各只留一处，公开页反复堆同一入口会让人抓不到重点
   const touchpoints = function (d) {
     const nodes = Array.prototype.slice.call(d.querySelectorAll('.landing a, .landing button'));
@@ -321,6 +327,7 @@ if (!dom.available()) {
 
   console.log('\n【12】登录页与旧版本提示的工程卫生');
   const appSrc = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
+  const fillSrc = fs.readFileSync(path.join(ROOT, 'public', 'fill.js'), 'utf8');
   t.ok(!/renderOldBackendNotice/.test(appSrc), '删掉"旧版本后端"提示页：固定端口后不会再连到旧进程');
   t.ok(!/localhost:51[0-9]{2}/.test(appSrc), '前端不再硬编码一串候选端口', (appSrc.match(/localhost:51\d\d/g) || []).join(','));
 
@@ -342,7 +349,8 @@ if (!dom.available()) {
   t.ok(!/const CATEGORIES = \[/.test(scalesSrc), 'lib/scales.js 也不再自带分类清单副本');
   t.ok(/const CATEGORIES = \[/.test(logicSrc), '分类清单定义在 lib/logic.js');
   t.ok(/MEDSCALE_LOGIC/.test(logicSrc), 'lib/logic.js 同时暴露给浏览器');
-  t.ok(/<script src="\/logic\.js"><\/script>/.test(idxSrc), 'index.html 先加载共享模块再加载 app.js');
+  t.ok(/<script src="\/logic\.js"><\/script>[\s\S]*<script src="\/common\.js"><\/script>[\s\S]*<script src="\/app\.js"><\/script>/.test(idxSrc),
+    'index.html 先加载共享模块与 common.js，再加载 app.js');
 
   const shared = await http.makeClient(srv).request('GET', '/logic.js');
   t.ok(shared.status === 200, '浏览器能取到共享模块', shared.status);
@@ -351,7 +359,7 @@ if (!dom.available()) {
   // 真的复用：app.js 只是接住共享模块的引用，页面行为由同一份实现决定
   const SHARED = hp.w.MEDSCALE_LOGIC || {};
   t.ok(!!SHARED.computeVisibility, '页面里存在 MEDSCALE_LOGIC');
-  t.ok(/= *SHARED\.computeVisibility/.test(appSrc), 'app.js 取的是共享引擎引用', 'no alias');
+  t.ok(/= *LOGIC\.computeVisibility/.test(fillSrc), 'fill.js 取的是共享引擎引用', 'no alias');
   t.ok(/= *SHARED\.CATEGORIES/.test(appSrc), 'app.js 取的是共享分类清单');
   const skipDef = { items: [
     { id: 'q1', no: 1, text: '是否有头痛？', type: 'radio', options: [{ label: '有', value: 1 }, { label: '无', value: 0 }],

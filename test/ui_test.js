@@ -24,6 +24,8 @@ process.env.MEDSCALE_DB = path.join(__dirname, 'ui_test.db');
 });
 const srv = require(path.join(ROOT, 'server.js'));
 const APP_JS = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
+const COMMON_JS = fs.readFileSync(path.join(ROOT, 'public', 'common.js'), 'utf8');
+const FILL_JS = fs.readFileSync(path.join(ROOT, 'public', 'fill.js'), 'utf8');
 const LOGIC_JS = fs.readFileSync(path.join(ROOT, 'lib', 'logic.js'), 'utf8');
 const INDEX_HTML = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
 
@@ -91,9 +93,14 @@ function makeApp(url) {
     };
   };
   w.HTMLCanvasElement.prototype.getContext = function () { return null; };
-  // 与浏览器加载顺序一致：先共享模块（跳题引擎 + 分类清单），再 app.js
+  // 与浏览器加载顺序一致：共享模块 → common.js；/s/ 填写入口只加载 fill.js。
+  // jsdom 的多次 eval 不共享顶层 const，所以合并成一次 eval（管理端同时预载懒加载的 fill.js）。
   w.eval(LOGIC_JS);
-  w.eval(APP_JS);
+  if (new URL(url || 'http://localhost:5173/').pathname.indexOf('/s/') === 0) {
+    w.eval(COMMON_JS + '\n' + FILL_JS);
+  } else {
+    w.eval(COMMON_JS + '\n' + FILL_JS + '\n' + APP_JS);
+  }
   return { dom: dom, w: w, d: w.document };
 }
 

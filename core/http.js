@@ -20,7 +20,10 @@ function errorResult() { return json(500, { error: '服务器内部错误' }); }
 
 function csvCell(v) {
   if (v === null || v === undefined) return '';
-  const s = Array.isArray(v) ? v.join('|') : String(v);
+  let s = Array.isArray(v) ? v.join('|') : String(v);
+  // Excel 会把 = + - @ 和制表/回车开头的单元格当公式执行；纯数字（含负数）例外。
+  const plainNumber = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/.test(s.trim());
+  if (!plainNumber && /^[=+\-@\t\r]/.test(s.replace(/^ +/, ''))) s = "'" + s;
   if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
 }

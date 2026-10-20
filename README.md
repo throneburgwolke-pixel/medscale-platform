@@ -3,7 +3,7 @@
 面向维护者的入口：怎么跑起来、怎么测试、哪些约定不能破。
 给使用者看的操作说明在 [`docs/使用说明.md`](docs/使用说明.md)。
 
-运行环境：**Node.js ≥ 22.5**（用到内置的 `node:sqlite`），无需构建步骤。
+运行环境：**Node.js ≥ 22.5**（用到内置的 `node:sqlite`），无需构建步骤。亦支持以 **Cloudflare Workers + D1** 形式免服务器、7×24 免费稳定运行（详见第六节第 5 条）。
 
 ---
 
@@ -38,14 +38,15 @@ npm i             # 装测试要用的 jsdom / playwright；运行期仍是零�
 npm test
 ```
 
-`npm test` 按顺序跑 28 个脚本，任何一项失败即整体失败：
+`npm test` 按顺序跑 36 个脚本，任何一项失败即整体失败：
 
 | 脚本 | 检查内容 |
 | --- | --- |
 | `test/contrast_test.js` | 直接解析 `styles.css`，文字对比度达到 WCAG AA |
 | `test/a11y_test.js` | 键盘焦点可见 + 语义标记（地标、可访问名称、动效收口） |
 | `test/scales_test.js` | 内置量表的题目结构、极值计分与判读逐条自检，并做已知数值核对 |
-| `test/core_schema_test.js` | 核心 schema.sql：10 表 DDL 完整、裸库可建、lib/db.js 同源 |
+| `test/scoring_validity_test.js` | 计分有效性：缺失条目、非数值选项、minValidItems/prorate 与分级边界，不完整答卷不输出被低估的总分 |
+| `test/core_schema_test.js` | 核心 schema.sql：10 表 DDL 完整、裸库可建、热点查询索引、lib/db.js 同源 |
 | `test/core_kdf_test.js` | 核心 KDF：scrypt 既有格式与 PBKDF2 前缀格式双算法哈希/校验、同步异步语义、lib/db.js 薄委托 |
 | `test/core_db_adapter_test.js` | 核心 DB 适配器：node:sqlite 同步库包成统一 async 接口，first/all/run/exec/batch 事务回滚与 SQLITE_BUSY 重试 |
 | `test/core_http_test.js` | 核心 HTTP 结果构造：json/text/buf 与 400/401/403/404/500 形状、500 不外泄内部细节、CSV 转义与 BOM/CRLF、server.js 复用同一实现 |
@@ -54,6 +55,7 @@ npm test
 | `test/core_registry_test.js` | 核心路由注册表：`:param` 编译与匹配、多余段不匹配、public/auth/admin 三态鉴权统一执行、未注册 404、handler 异常 500 不外泄堆栈、`list()` 暴露 method/pattern/auth/admin |
 | `test/port_test.js` | 端口策略：占用时以明确错误退出，不静默顺延 |
 | `test/auth_test.js` | 管理员口令以 scrypt 哈希存储，接口与日志不泄露明文，旧库可迁移 |
+| `test/admin_password_guard_test.js` | 改管理员口令需管理员会话 + 限流：非管理员 403、验错原密码 429、成功后全端下线 |
 | `test/hardening_test.js` | 对外暴露面：默认只监听本机、免码注册默认关闭（仅首个账号可自助开通）、失败限流、错误不外泄、地址解析 |
 | `test/invite_test.js` | 注册三态与邀请码：发码、凭码开号、原子核销与退回、零用户开局 |
 | `test/cluster_test.js` | 会话与限流落库：token 只存哈希、改角色/停用即时生效、跨进程共享计数、写冲突重试、worker 数解析 |
@@ -63,13 +65,19 @@ npm test
 | `test/backup_test.js` | 一键快照与可验证、可回退的恢复流程（含权限、坏文件、缺确认三类拒绝） |
 | `test/hygiene_test.js` | 工程卫生：依赖声明、个人路径、文档与 `npm test` 清单一致、临时实例自检 |
 | `test/frontend_test.js` | 界面行为：注册开关的表现、首页锚点、跳题联动、共用模块载入 |
+| `test/xss_render_test.js` | 渲染型 XSS：量表元数据、工作台最近打开、填写页数字字段、随访判读标签都不执行注入 |
 | `test/landing_polish_test.js` | 首页打磨：量表库入口去重、图标底板合法、打字行不顶动布局、顶栏收缩/回顶/分栏等增强 |
 | `test/api_test.js` | 进程内接口测试：登录、量表、发布、填写、统计、导出、二维码等 |
 | `test/advanced_test.js` | 跳题逻辑（skip logic）与随访/多次测量的配对分析 |
 | `test/narrative_test.js` | 结果描述：样本量/描述统计/信度句子生成、不输出伪数值、同源结论去重、空数据明确不可用 |
+| `test/report_grouping_test.js` | 报告分组：分组变量不得混入计分条目，分组统计与个案报告口径一致 |
+| `test/stats_golden_test.js` | 统计黄金值：t/χ²/F/MW/Wilcoxon/KW/ANOVA 对照教科书临界值，退化输入不出 NaN 或越界系数 |
 | `test/import_test.js` | Word / Excel / CSV / 文本 / PDF 导入，及导入后的全链路可用 |
+| `test/csv_injection_test.js` | CSV 公式注入：以 `= + - @` 开头的单元格在导出时被转义 |
 | `test/ui_test.js` | 全流程：登录 → 量表库 → 编辑器 → 发布 → 数据看板 → 手机填写 |
 | `test/stability_test.js` | 运行稳定性：HTTP 超时参数、进程级兜底、SIGTERM/SIGINT 优雅退出、慢客户端不拖垮服务、强杀后同端口重启自愈 |
+| `test/d1_init_batch_test.js` | D1 冷启动：模板播种与同步走 batch，首启与后续往返次数保持在个位数（避开 Workers 子请求上限） |
+| `test/worker_routes_test.js` | Cloudflare Worker：SPA 深链接回退、静态资源安全头、PATCH 调查、量表/调查鉴权与归属隔离、IP 信任链与限流分桶 |
 
 ### 浏览器级检查（可选）
 
@@ -112,8 +120,12 @@ lib/
   qr.js            二维码生成
   scale-kit.js     量表定义的结构约定
 public/
-  index.html       单页壳，先载 /logic.js 再载 /app.js
-  app.js           全部前端视图（hash 路由，直接渲染）
+  index.html       管理端单页壳，依次载 /logic.js、/common.js、/app.js
+  fill.html        受试者填写入口（/s/<token>），只载 logic/common/fill 三份脚本
+  common.js        前后端页面共用的小工具（选择器、转义、toast、api 封装）
+  fill.js          公开填写页视图（按需懒加载，管理端首屏不下载）
+  app.js           管理端视图（hash 路由，直接渲染）
+  logic.js         由 lib/logic.js 复制而来（npm run sync:logic）
   styles.css
 docs/使用说明.md   给使用者的操作说明
 test/              上述测试与 helpers/
@@ -243,4 +255,53 @@ scales.example.edu.cn {
 公网会扫到匿名接口，所以按来源 IP 限了额度（计数在 `rate_limits` 表，多进程共享）：
 问卷填写提交 `200 次 / 10 分钟`，量表导入上传 `40 次 / 10 分钟`，超了回 `429` 并带
 `Retry-After`。登录失败另有自己的窗口限流。阈值在 `server.js` 的 `RATE_POLICY` 里改。
+
+### 5. 部署到 Cloudflare Workers + D1（免服务器 · 免费稳定）
+
+不想维护云服务器、又要公网 7×24 稳定可访问时，可把平台跑在 Cloudflare Workers 上，
+数据落在边缘 SQLite **D1**。免费档即不休眠、不限流量（按请求计费，个人/科室用量远在免费额度内）。
+
+本仓库已内含一套 Workers 版实现，与 Node 版**共用同一套前端与业务规则**，只是把数据层换成 D1：
+
+| 文件 | 作用 |
+| --- | --- |
+| `worker.js` | Workers 入口（ESM），路由分发、会话/Cookie、登录注册、限流、导出、二维码 |
+| `lib/db-d1.js` | D1 异步数据层，导出函数与 `lib/db.js` 一一对应，便于切换 |
+| `lib/qr.js` | 改用零依赖的 zlib「存储块」生成 PNG，规避 Workers 不支持 `node:zlib` 的限制 |
+| `wrangler.toml` | Workers + D1 + 静态资源（`[assets]` 自动托管 `./public`）绑定配置 |
+| `core/schema.sql` | D1 建表脚本（与 Node 版同一份表结构） |
+
+**一次性上线步骤（需自备 Cloudflare 账号）：**
+
+```bash
+# 1) 装 wrangler（开发依赖，不污染运行期零依赖约定）
+npm i -D wrangler
+# 2) 登录 Cloudflare（浏览器授权，仅首次）
+npx wrangler login
+# 3) 建 D1 数据库，把输出的 database_id 填进 wrangler.toml 的 [[d1_databases]] database_id
+npx wrangler d1 create medscale
+# 4) 建表（首次）
+npx wrangler d1 execute medscale --remote --file=core/schema.sql
+# 5) 设管理员初始口令（不设则首次启动随机生成一个，仅出现在 Worker 日志）
+npx wrangler secret put MEDSCALE_PASSWORD
+# 6) 发布
+npx wrangler deploy
+```
+
+发布后访问分配的 `*.workers.dev` 或绑定的自定义域名即可；`/healthz` 同样返回 `{"ok":true}`。
+
+**与 Node 版的关键差异（部署前务必知悉）：**
+
+- **账号不互通**：Workers 版用 PBKDF2 哈希口令，Node 版用 scrypt，二者口令不可直接迁移。
+  这是一次**全新部署**——在 Cloudflare 上重新注册管理员、重新开调查，而不是把 Node 的 `data/app.db` 搬过去。
+- **暂未实现的接口**：随访研究（`/api/studies`）、数据备份/恢复、文件导入（xlsx/csv）在 Workers 版
+  返回 `501`，前端会有明确提示。需要这些能力时仍用 Render/Node 版。答题、计分、二维码、邀请码、
+  用户/设置、CSV/JSON 导出均已可用。
+- **备份**：边缘端无文件系统，不生成本地备份文件；请用应用内「CSV/JSON 导出」，或到 Cloudflare 控制台的 D1 页导出。
+- **使用说明页**：边缘端不读本地文件，`/api/guide.md` 默认返回占位；如需内置，把说明文本写进环境变量 `MEDSCALE_GUIDE`。
+- **免费档配额**：D1 免费额度为每日 500 万次读、10 万次写、单库 500 MB，科室/研究组用量完全够用；
+  若需更大，升 Workers 付费档或 D1 付费档即可。
+
+本地联调可用 `npx wrangler dev`（会自动起本地 D1 与静态服务），但需注意 `wrangler dev` 依赖本地
+SQLite 的写临时文件，在受限沙箱环境下可能无法启动——此时直接用 Node 版 `node server.js` 验证功能即可。
 

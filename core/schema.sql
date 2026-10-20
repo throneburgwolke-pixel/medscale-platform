@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS responses (
 );
 
 CREATE INDEX IF NOT EXISTS idx_responses_survey ON responses(survey_id);
+CREATE INDEX IF NOT EXISTS idx_responses_subject ON responses(subject_id);
+CREATE INDEX IF NOT EXISTS idx_surveys_study ON surveys(study_id);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -112,6 +114,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_seen TEXT,
   expires_at TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
 CREATE TABLE IF NOT EXISTS rate_limits (
   key TEXT PRIMARY KEY,
