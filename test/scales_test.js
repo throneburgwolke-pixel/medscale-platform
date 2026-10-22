@@ -53,8 +53,11 @@ TEMPLATES.forEach(function (t) {
       });
     }
   });
-  if (t.scoring && t.scoring.method && t.scoring.method !== 'none') {
+  if (t.scoring && t.scoring.method && t.scoring.method !== 'none' && t.scoring.method !== 'formula') {
     ok((t.dimensions || []).length > 0, id + ' 计分量表应有维度定义');
+  }
+  if (t.scoring && t.scoring.method === 'formula') {
+    ok(!!require(path.join(__dirname, '..', 'lib', 'scoring.js')).FORMULAS[t.scoring.formula], id + ' 引用的公式已注册');
   }
 });
 
@@ -70,6 +73,10 @@ TEMPLATES.forEach(function (t) {
   }
   if (mode === 'custom') {
     ok(rMax.total !== null, t.code + ' 专用计分可算出总分');
+    return;
+  }
+  if (mode === 'formula') {
+    ok(rMin.total !== null && rMax.total !== null, t.code + ' 公式计分在取值范围两端都能算出总分', [rMin.total, rMax.total]);
     return;
   }
   const range = t.scoring.totalRange;
