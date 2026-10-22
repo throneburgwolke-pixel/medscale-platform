@@ -84,6 +84,8 @@ function hasLabel(ctrl, d) {
   const rmBlock = (clean.match(/@media\s*\(prefers-reduced-motion:\s*reduce\s*\)\s*\{([\s\S]*)/) || [])[1] || '';
   t.ok(/animation\s*:\s*none|animation-duration\s*:\s*0/.test(rmBlock), '减少动效时关闭动画', rmBlock.slice(0, 80));
   t.ok(/transition\s*:\s*none|transition-duration\s*:\s*0/.test(rmBlock), '减少动效时关闭过渡');
+  t.ok(/\.reveal[^{]*\{[^}]*opacity\s*:\s*1/.test(rmBlock),
+    '减少动效时滚动显现内容仍保持可见（animation:none 不会执行 slideUpIn 的终态）');
   t.ok(ruleBody(/\.skip-link/).length > 0, '存在 .skip-link（键盘用户跳转主内容）');
   t.ok(/\.skip-link:focus|\.skip-link:focus-visible/.test(clean), '.skip-link 聚焦时可见');
 

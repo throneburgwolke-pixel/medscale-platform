@@ -603,6 +603,17 @@ select, input, .btn { font-size: var(--fs-14); line-height: 1.45; }
 }
 #nav-progress.on { opacity: 1; transform: scaleX(.82); }
 
+/* 轻量品牌动效：只改装饰元素，不改变布局与文字对比度 */
+.brand-mark {
+  background-image: linear-gradient(120deg, var(--brand-solid), var(--accent), var(--violet), var(--brand-solid));
+  background-size: 260% 100%;
+  animation: brandSheen 9s linear infinite;
+}
+@keyframes brandSheen { to { background-position: 260% 0; } }
+.scale-card .cat-dot { transition: transform .18s var(--ease-spring); }
+.scale-card:hover .cat-dot { transform: scale(1.35); }
+.fill-wrap { animation: pageIn .28s var(--ease-out) backwards; }
+
 /* ================= 统一卡片结构（所有列等宽等高） ================= */
 .grid > * { min-width: 0; }
 .card { display: flex; flex-direction: column; }
@@ -994,5 +1005,7 @@ details summary:hover { color: var(--brand-600); }
     animation: none !important;
     transition: none !important;
   }
+  /* 滚动显现的元素基础态是 opacity:0；关闭动画后必须显式恢复可见 */
+  .reveal, .reveal.in { opacity: 1 !important; transform: none !important; }
   html { scroll-behavior: auto !important; }
 }
