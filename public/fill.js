@@ -177,7 +177,9 @@ function drawFill(isPreview) {
         '<h1>' + esc(data.scale.title || data.survey.name) + '</h1>' +
         (data.scale.instructions ? '<p>' + esc(data.scale.instructions) + '</p>' : '') +
         '<div class="small" style="color:var(--grad-mist);margin-top:8px">' +
-          (data.survey.anonymous ? '本问卷匿名收集' : '本问卷需署名填写') +
+          (data.scale.definition && data.scale.definition.rater === 'clinician'
+            ? '评估者填写'
+            : (data.survey.anonymous ? '本问卷匿名收集' : '本问卷需署名填写')) +
           ' · 共 ' + items.length + ' 题' +
           (data.scale.consentOn ? ' · 已阅读知情同意' : '') +
           ' · 预计 ' + estimateMinutes(items.length) +
@@ -505,10 +507,12 @@ async function submitFill() {
 }
 
 function showThanks(data, result, isPreview, subjectId) {
+  // 临床评分由医护填写：不出现「感谢您的参与」这类面向受试者的话
+  const clinician = !!(data && data.scale && data.scale.definition && data.scale.definition.rater === 'clinician');
   let body = '';
   if (result && result.total !== null && result.total !== undefined) {
     const cut = result.cut || {};
-    body += '<div class="card mt16"><div class="card-title">您的评估结果</div>' +
+    body += '<div class="card mt16"><div class="card-title">' + (clinician ? '评分结果' : '您的评估结果') + '</div>' +
       '<div class="center" style="padding:8px 0 4px">' +
         '<div class="muted small">总分</div>' +
         '<div style="font-size:44px;font-weight:700;color:var(--brand-dark);line-height:1.15">' + result.total + '</div>' +
@@ -525,13 +529,16 @@ function showThanks(data, result, isPreview, subjectId) {
         }).join('') + '</tbody></table></div>';
     }
     if (result.flags && result.flags.length) body += '<div class="banner danger mt16">' + esc(result.flags[0].text) + '</div>';
-    body += '<div class="banner info mt16 mb0 small">本结果基于自评量表自动计算，仅供健康筛查参考，<b>不能替代临床诊断</b>。如有明显不适，请及时就医。</div></div>';
+    body += '<div class="banner info mt16 mb0 small">' + (clinician
+      ? '评分由系统按量表规则自动计算，请结合临床判断使用。'
+      : '本结果基于自评量表自动计算，仅供健康筛查参考，<b>不能替代临床诊断</b>。如有明显不适，请及时就医。') + '</div></div>';
   }
   $('#app').innerHTML = '<div class="fill-wrap">' +
     '<div class="card center"><div style="font-size:42px">✅</div>' +
-      '<h2 class="mb8">' + (isPreview ? '这是预览效果' : '提交成功，感谢您的参与！') + '</h2>' +
+      '<h2 class="mb8">' + (isPreview ? '这是预览效果' : (clinician ? '评估已记录' : '提交成功，感谢您的参与！')) + '</h2>' +
       '<div class="muted small">' + (isPreview ? '正式发布后，受试者看到的就是这个页面。'
-        : (data && data.survey && data.survey.note ? esc(data.survey.note) : '您的作答已被记录，感谢您的配合。')) + '</div>' +
+        : (data && data.survey && data.survey.note ? esc(data.survey.note)
+          : (clinician ? '本次评估已保存。' : '您的作答已被记录，感谢您的配合。'))) + '</div>' +
       (subjectId ? '<div class="banner info mt16 mb0">您的随访编号：<b style="font-size:18px;letter-spacing:1px">' + esc(subjectId) +
         '</b><br><span class="small">请记录此编号，下次随访时填写同一编号，系统才能将多次结果配对分析。</span></div>' : '') +
     '</div>' + body +

@@ -25,6 +25,9 @@
   --ok-text: #2f7a35;
   --warn-text: #8f5e0a;
   --danger-text: #b91c1c;
+  /* 待填（商业授权占位）专用一档：比普通警告更醒目，同时满足 AA */
+  --pending-50: #fff4e5;
+  --pending-text: #8a4b00;
 
   --ink: #10292f;
   --ink-2: #4c656d;
@@ -131,6 +134,8 @@
     --ok-text: #4ade80;
     --warn-text: #f0b04a;
     --danger-text: #f87171;
+    --pending-50: #3a2a12;
+    --pending-text: #f5c58a;
     --ink: #e8f1f2;
     --ink-2: #a9bec4;
     --ink-3: #85a0a7;
@@ -309,6 +314,7 @@ input[type=checkbox], input[type=radio] { accent-color: var(--brand); }
 .tag.warn { background: var(--warn-50); color: var(--warn-text); }
 .tag.danger { background: var(--danger-50); color: var(--danger-text); }
 .tag.ok { background: var(--ok-50); color: var(--ok-text); }
+.tag.pending { background: var(--pending-50); color: var(--pending-text); }
 
 /* ---------- 表格 ---------- */
 .table { width: 100%; border-collapse: collapse; font-size: 13.5px; }

@@ -38,13 +38,15 @@ npm i             # 装测试要用的 jsdom / playwright；运行期仍是零�
 npm test
 ```
 
-`npm test` 按顺序跑 36 个脚本，任何一项失败即整体失败：
+`npm test` 按顺序跑 39 个脚本，任何一项失败即整体失败：
 
 | 脚本 | 检查内容 |
 | --- | --- |
 | `test/contrast_test.js` | 直接解析 `styles.css`，文字对比度达到 WCAG AA |
 | `test/a11y_test.js` | 键盘焦点可见 + 语义标记（地标、可访问名称、动效收口） |
 | `test/scales_test.js` | 内置量表的题目结构、极值计分与判读逐条自检，并做已知数值核对 |
+| `test/scale_engine_test.js` | 量表引擎扩展：正文待填按内容判定、kit 透传分档与待填标记、授权分级与评估者标记持久化 |
+| `test/scoring_bands_formula_test.js` | 数值分档边界与越界、MELD / MELD-Na 黄金值与截断规则 |
 | `test/scoring_validity_test.js` | 计分有效性：缺失条目、非数值选项、minValidItems/prorate 与分级边界，不完整答卷不输出被低估的总分 |
 | `test/core_schema_test.js` | 核心 schema.sql：10 表 DDL 完整、裸库可建、热点查询索引、lib/db.js 同源 |
 | `test/core_kdf_test.js` | 核心 KDF：scrypt 既有格式与 PBKDF2 前缀格式双算法哈希/校验、同步异步语义、lib/db.js 薄委托 |
@@ -61,6 +63,7 @@ npm test
 | `test/cluster_test.js` | 会话与限流落库：token 只存哈希、改角色/停用即时生效、跨进程共享计数、写冲突重试、worker 数解析 |
 | `test/headers_test.js` | 公网基线：CSP 等响应头、HSTS 与 `Secure` 只在可信 HTTPS 下、ETag/304、`/healthz`、提交与上传配额、前端无内联脚本 |
 | `test/ownership_test.js` | 数据归属：量表/调查/随访按创建者隔离，越权读写必须被拒 |
+| `test/publish_guard_test.js` | 发布守卫：正文待填的量表不能发布调查或随访研究；评估者量表提交后返回评分 |
 | `test/privacy_test.js` | 隐私隔离：无归属数据（历史遗留/管理员口令会话所建）只对管理员可见；一份调查的报告/四种导出/单份答卷每个出口都堵上；自建量表不进公开目录 |
 | `test/backup_test.js` | 一键快照与可验证、可回退的恢复流程（含权限、坏文件、缺确认三类拒绝） |
 | `test/hygiene_test.js` | 工程卫生：依赖声明、个人路径、文档与 `npm test` 清单一致、临时实例自检 |

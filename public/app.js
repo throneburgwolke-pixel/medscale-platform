@@ -84,8 +84,20 @@ function licenseKind(text, isOwn) {
   return { key: 'warn', label: '使用前请核对授权' };
 }
 
+/* 授权徽标优先看结构化分级（licenseTier），没有分级时退回按文字判断。
+   商业授权且正文仍是占位时，明确标出「正文待填」，避免把空题卷发给受试者。 */
+const TIER_TAG = {
+  free: { key: 'ok', label: '免费使用' },
+  registration: { key: 'ok', label: '免费 · 需注册或引用' },
+  commercial: { key: 'warn', label: '商业授权' },
+};
+
 function licenseTag(s) {
-  const lic = licenseKind(s.license, !s.isTemplate);
+  const def = s.definition || {};
+  let lic = TIER_TAG[def.licenseTier] || licenseKind(s.license, !s.isTemplate);
+  if (def.licenseTier === 'commercial' && SHARED.pendingItems(def).length) {
+    lic = { key: 'pending', label: '商业授权 · 正文待填' };
+  }
   return '<span class="tag lic-tag ' + lic.key + '" title="授权说明：' + esc(s.license || '未标注') + '">' + lic.label + '</span>';
 }
 
@@ -2370,6 +2382,11 @@ async function openFillPreview(scaleLike) {
 /* ================= 发布对话框 ================= */
 async function openPublishDialog(scaleId) {
   const s = await api('/scales/' + scaleId);
+  const pend = SHARED.pendingItems(s.definition);
+  if (pend.length) {
+    toast('还有 ' + pend.length + ' 道题待填入授权文本，请先复制为「我的量表」并在编辑器中填写后再发布', 'err');
+    return;
+  }
   const div = document.createElement('div');
   div.className = 'modal-mask';
   div.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="dlg-t-publish">' +

@@ -415,5 +415,59 @@ if (!dom.available()) {
   const adminSettingsText = adminDom.d.body.textContent.replace(/\s+/g, ' ');
   t.ok(/修改管理员密码/.test(adminSettingsText), '管理员仍能看到修改入口', adminSettingsText.slice(0, 160));
 
+  console.log('\n【15】授权分级徽标、待填拦截、评估者文案');
+  const tierSrc = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
+  t.ok(/licenseTier/.test(tierSrc) && /s\.definition/.test(tierSrc), 'app.js 依据量表定义里的 licenseTier 决定徽标');
+
+  // 真实渲染：建四份量表，看卡片上的授权徽标
+  const mkTierScale = async (title, tier, items) => admin.request('POST', '/api/scales', { scale: {
+    title: title, category: '情绪与心理', licenseTier: tier,
+    definition: { items: items, dimensions: [{ id: 'total', name: '总分', items: items.map((i) => i.id) }], scoring: { method: 'sum' } },
+  } });
+  const plainItem = (id) => ({ id: id, no: 1, text: '题干', type: 'radio', options: [{ label: '是', value: 1 }, { label: '否', value: 0 }] });
+  const pendItems = [{ id: 'q1', no: 1, text: '第 1 题：请按授权版本填入题干', type: 'radio', textPending: true,
+    options: [{ label: '选项 1（0 分）：请按授权版本填入', value: 0 }, { label: '选项 2（1 分）：请按授权版本填入', value: 1 }] }];
+  await mkTierScale('徽标-免费', 'free', [plainItem('a1')]);
+  await mkTierScale('徽标-注册', 'registration', [plainItem('a2')]);
+  await mkTierScale('徽标-商业待填', 'commercial', pendItems);
+  await mkTierScale('徽标-商业已填', 'commercial', [plainItem('a4')]);
+  const tierDom = dom.makeDom(srv, admin.cookieStore);
+  await dom.wait(360);
+  await dom.goto(tierDom, '#/scales');
+  await dom.wait(520);
+  const tagOfTitle = (title) => {
+    const card = Array.from(tierDom.d.querySelectorAll('.scale-card')).find((c) => c.textContent.indexOf(title) >= 0);
+    const tag = card && card.querySelector('.lic-tag');
+    return tag ? tag.textContent.trim() : null;
+  };
+  t.ok(tagOfTitle('徽标-免费') === '免费使用', 'free → 免费使用', tagOfTitle('徽标-免费'));
+  t.ok(tagOfTitle('徽标-注册') === '免费 · 需注册或引用', 'registration → 免费 · 需注册或引用', tagOfTitle('徽标-注册'));
+  t.ok(tagOfTitle('徽标-商业待填') === '商业授权 · 正文待填', 'commercial 且有占位 → 商业授权 · 正文待填', tagOfTitle('徽标-商业待填'));
+  t.ok(tagOfTitle('徽标-商业已填') === '商业授权', 'commercial 已填完 → 商业授权', tagOfTitle('徽标-商业已填'));
+  t.ok(/pendingItems\(s\.definition\)/.test(tierSrc) && /待填入授权文本/.test(tierSrc),
+    '发布对话框在打开前检查待填条目');
+
+  // 行为：带占位条目的量表点「发布为调查」只弹提示，不打开发布对话框
+  const pendScale = await admin.request('POST', '/api/scales', { scale: {
+    title: '待填量表', category: '情绪与心理', licenseTier: 'commercial',
+    definition: { items: pendItems, dimensions: [{ id: 'total', name: '总分', items: ['q1'] }], scoring: { method: 'sum' } },
+  } });
+  t.ok(pendScale.status === 200 && !!pendScale.json.id, '创建带占位条目的量表', pendScale.json);
+  const pendDom = dom.makeDom(srv, admin.cookieStore);
+  await dom.wait(360);
+  await dom.goto(pendDom, '#/scale/' + pendScale.json.id);
+  await dom.wait(420);
+  const publishBtn = pendDom.d.getElementById('d-publish');
+  t.ok(!!publishBtn, '量表详情页有「发布为调查」按钮');
+  if (publishBtn) publishBtn.click();
+  await dom.wait(320);
+  const pendToast = pendDom.d.getElementById('toast-host').textContent.replace(/\s+/g, ' ');
+  t.ok(/待填入授权文本/.test(pendToast), '待填量表点发布被拦下并说明原因', pendToast.slice(0, 120));
+  t.ok(!pendDom.d.getElementById('p-name'), '待填量表不会打开发布对话框');
+
+  const fillSrc2 = fs.readFileSync(path.join(ROOT, 'public', 'fill.js'), 'utf8');
+  t.ok(/rater === 'clinician'/.test(fillSrc2) && /评估者填写/.test(fillSrc2) && /评估已记录/.test(fillSrc2),
+    'fill.js 为评估者量表切换文案');
+
   process.exit(t.done('前端行为'));
 })();
