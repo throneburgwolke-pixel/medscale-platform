@@ -151,7 +151,7 @@ const wq3 = T('whoqol-bref').items.find(function (i) { return i.id === 'wq3'; })
 ok(itemScore(wq3, 1, T('whoqol-bref').scoring) === 5 && itemScore(wq3, 5, T('whoqol-bref').scoring) === 1,
   'WHOQOL-BREF 反向条目正确反转（"完全没有妨碍"=5分，"极妨碍"=1分）');
 r = scoreResponse(T('nrs-2002'), fill(T('nrs-2002'), 'max'));
-ok(r.total === 7 && r.cut.label === '存在营养风险', 'NRS-2002 最高分 = 7（存在营养风险）', r.total);
+ok(r.total === 7 && r.cut.label === '高营养风险', 'NRS-2002 最高分 = 7（高营养风险）', r.total);
 r = scoreResponse(T('gcs'), all(T('gcs'), 1));
 ok(r.total === 3, 'GCS 最低分 = 3 分（满分 15）', r.total);
 r = scoreResponse(T('mmas-8'), all(T('mmas-8'), 1));

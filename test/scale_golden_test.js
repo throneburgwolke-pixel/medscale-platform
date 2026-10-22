@@ -27,6 +27,25 @@ const CASES = [
     total: 25, cut: '20-29 分', note: 'OPTN/UNOS 2016：胆红素 3 mg/dL、INR 2、肌酐 2 mg/dL' },
   { code: 'meld-na', answers: function () { return { bili: 51.3, inr: 2, cr: 176.8, dialysis: 0, na: 130 }; },
     total: 28, cut: '20-29 分', note: 'OPTN/UNOS 2016 血钠校正：MELD 25 + Na 130' },
+  { code: 'dasi', answers: function (s) {
+      const a = {};
+      s.items.forEach(function (it) { a[it.id] = it.options[0].value; });
+      return a;
+    }, total: 58.2, cut: '运动耐量良好', note: 'Hlatky 1989：12 项全部能完成 = 58.2（性生活项权重 5.25）' },
+  { code: 'hbi', answers: function () {
+      return { hbi1: 4, hbi2: 3, hbi3: 4, hbi4: 3, hbi5: [1, 1, 1, 1, 1, 1, 1] };
+    }, total: 21, cut: '重度活动', note: 'Harvey-Bradshaw 1980：五项最重档合计 21 分' },
+  { code: 'wexner', answers: function (s) {
+      const a = {};
+      s.items.forEach(function (it) { a[it.id] = 4; });
+      return a;
+    }, total: 32, cut: '重度便秘', note: 'Agachan 1996：8 项各 4 分 = 32（原文样本中最高 30）' },
+  { code: 'who-5', answers: function (s) { return allAs(s, 0); }, total: 0, cut: '幸福感很低',
+    note: 'WHO-5：原始分 0 ×4 = 0，≤28 提示抑郁筛查阳性' },
+  { code: 'nrs-2002', answers: function () { return { nrs1: 1, nrs2: 1, nrs3: 1 }; }, total: 3, cut: '存在营养风险',
+    note: 'Kondrup 2003：总分 3 分起存在营养风险' },
+  { code: 'nrs-2002', answers: function () { return { nrs1: 3, nrs2: 3, nrs3: 1 }; }, total: 7, cut: '高营养风险',
+    note: 'Kondrup 2003：总分 ≥5 为高营养风险' },
 ];
 
 console.log('\n【黄金值】' + CASES.length + ' 条');
