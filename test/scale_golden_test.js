@@ -93,6 +93,22 @@ const CASES = [
     note: 'Radloff 1977：全部 0 分 = 0' },
   { code: 'ces-d', answers: function (s) { return allAs(s, 3); }, total: 60, cut: '可能存在抑郁症状',
     note: 'Radloff 1977：20 项各 3 分 = 60（≥16 提示抑郁症状）' },
+  { code: 'sppb', answers: function () { return { balance: 4, gait: 4.5, chair: 10 }; }, total: 12, cut: '身体功能良好',
+    note: 'Guralnik 1994：单腿站立 10 秒、步速 <4.82 秒、起坐 <11.2 秒 = 12 分' },
+  { code: 'sppb', answers: function () { return { balance: 0, gait: 0, chair: 0 }; }, total: 0, cut: '身体功能差',
+    note: 'Guralnik 1994：三项均无法完成 = 0 分' },
+  { code: 'ndi', answers: function (s) { return allAs(s, 0); }, total: 0, cut: '轻度障碍',
+    note: 'Vernon 1991：全部 0 分 = 0%' },
+  { code: 'ndi', answers: function (s) { return allAs(s, 5); }, total: 100, cut: '完全受限',
+    note: 'Vernon 1991：10 项各 5 分 = 50 × 2 = 100%' },
+  { code: 'ecog', answers: function (s) { return allAs(s, 1); }, total: 1, cut: '1 级：轻体力活动受限',
+    note: 'Oken 1982：ECOG 1 级' },
+  { code: 'kps', answers: function (s) { return allAs(s, 100); }, total: 100, cut: '正常',
+    note: 'Karnofsky 1949：KPS 100' },
+  { code: 'medas', answers: function (s) { return allAs(s, 1); }, total: 14, cut: '依从性高',
+    note: 'Estruch 2013：14 项均达标 = 14 分（≥9 为高依从）' },
+  { code: 'medas', answers: function (s) { return allAs(s, 0); }, total: 0, cut: '依从性低',
+    note: 'Estruch 2013：14 项均不达标 = 0 分' },
 ];
 
 console.log('\n【黄金值】' + CASES.length + ' 条');
