@@ -55,5 +55,42 @@ const t = http.makeCounter();
   const sub = await anon.request('POST', '/api/join/' + sv.json.token, { answers: { r1: 1 } });
   t.ok(sub.status === 200 && sub.json.result && sub.json.result.total === 1, '评估者量表返回 result.total', sub.json);
 
+  console.log('\n【4】分档评分的完整链路：发布 → 填写 → 报告 → 导出');
+  const { TEMPLATES } = require(path.join(ROOT, 'lib', 'scales.js'));
+  const cp = TEMPLATES.find((x) => x.code === 'child-pugh');
+  const cpScale = await c.request('POST', '/api/scales', { scale: Object.assign({}, cp, { code: 'child-pugh-test' }) });
+  t.ok(cpScale.status === 200, '分档量表入库', cpScale.json);
+  const cpSurvey = await c.request('POST', '/api/surveys', { scaleId: cpScale.json.id, name: 'Child-Pugh 测试', showResult: true });
+  t.ok(cpSurvey.status === 200, '分档量表可发布', cpSurvey.json);
+  const answers = [
+    { bili: 20, alb: 40, inr: 1.2, ascites: 1, he: 1 },
+    { bili: 51, alb: 27, inr: 2.4, ascites: 3, he: 3 },
+  ];
+  let last = null;
+  for (const a of answers) last = await anon.request('POST', '/api/join/' + cpSurvey.json.token, { answers: a });
+  t.ok(last.status === 200 && last.json.result.total === 15 && last.json.result.cut.label === 'C 级',
+    '分档值经过 JSON 存取后仍然正确（15 分 C 级）', last.json && last.json.result);
+  const rep = await c.request('GET', '/api/surveys/' + cpSurvey.json.id + '/report');
+  t.ok(rep.status === 200 && rep.json.n === 2 && rep.json.scores && rep.json.scores.total.n === 2,
+    '报告能统计分档量表（2 份）', rep.json && { n: rep.json.n, total: rep.json.scores && rep.json.scores.total });
+  t.ok(rep.json.scores.total.min === 5 && rep.json.scores.total.max === 15 && rep.json.scores.total.mean === 10,
+    '报告里的总分来自分档规则（5 / 15，均值 10）', rep.json.scores.total);
+  t.ok(rep.json.scores.totalRange && rep.json.scores.totalRange[0] === 5 && rep.json.scores.totalRange[1] === 15,
+    '报告带出量表的可取值范围', rep.json.scores.totalRange);
+  const csv = await c.request('GET', '/api/surveys/' + cpSurvey.json.id + '/export.csv');
+  t.ok(csv.status === 200 && /15/.test(csv.text), 'CSV 导出含分档总分', csv.text.slice(0, 80));
+
+  console.log('\n【5】公式计分（无维度）也能出报告');
+  const meld = TEMPLATES.find((x) => x.code === 'meld');
+  const meldScale = await c.request('POST', '/api/scales', { scale: Object.assign({}, meld, { code: 'meld-test' }) });
+  const meldSurvey = await c.request('POST', '/api/surveys', { scaleId: meldScale.json.id, name: 'MELD 测试', showResult: true });
+  const meldSub = await anon.request('POST', '/api/join/' + meldSurvey.json.token,
+    { answers: { bili: 51.3, inr: 2, cr: 176.8, dialysis: 0 } });
+  t.ok(meldSub.status === 200 && meldSub.json.result.total === 25, 'MELD 提交后得到 25 分', meldSub.json && meldSub.json.result);
+  const meldRep = await c.request('GET', '/api/surveys/' + meldSurvey.json.id + '/report');
+  t.ok(meldRep.status === 200 && meldRep.json.scores.total.mean === 25, '无维度量表的报告不报错且总分正确', meldRep.json);
+  t.ok(Array.isArray(meldRep.json.scores.dimensions) && meldRep.json.scores.dimensions.length === 0,
+    '无维度量表的维度统计为空数组', meldRep.json.scores && meldRep.json.scores.dimensions);
+
   process.exit(t.done('发布守卫'));
 }()).catch(function (e) { console.error('测试异常：', e && e.stack || e); process.exit(1); });

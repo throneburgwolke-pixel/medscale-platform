@@ -459,6 +459,8 @@ if (!dom.available()) {
   await dom.wait(420);
   const publishBtn = pendDom.d.getElementById('d-publish');
   t.ok(!!publishBtn, '量表详情页有「发布为调查」按钮');
+  t.ok(/还有 *1 *道题待填入授权文本/.test(pendDom.d.body.textContent), '详情页顶部说明还剩几道题待填',
+    pendDom.d.body.textContent.slice(0, 200));
   if (publishBtn) publishBtn.click();
   await dom.wait(320);
   const pendToast = pendDom.d.getElementById('toast-host').textContent.replace(/\s+/g, ' ');

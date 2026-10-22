@@ -40,6 +40,10 @@ const codes = new Set();
 TEMPLATES.forEach(function (t) {
   const id = t.code;
   ok(!!t.code && !!t.title && !!t.category && !!t.source && !!t.license, id + ' 元数据完整');
+  ok(['free', 'registration', 'commercial'].indexOf(t.licenseTier) >= 0, id + ' licenseTier 合法', t.licenseTier);
+  const pendCount = t.items.filter(function (it) { return it.textPending; }).length;
+  if (t.licenseTier === 'commercial') ok(pendCount === t.items.length, id + ' 商业授权模板全部条目为待填', pendCount);
+  else ok(pendCount === 0, id + ' 非商业授权模板不得有待填条目', pendCount);
   ok(!codes.has(t.code), id + ' code 唯一');
   codes.add(t.code);
   ok(t.items.length > 0, id + ' 至少有 1 个条目');

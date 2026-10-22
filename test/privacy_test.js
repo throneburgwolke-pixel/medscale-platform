@@ -61,6 +61,7 @@ async function main() {
     const ans = {};
     def.items.forEach(function (it, i) {
       if (it.options && it.options.length) ans[it.id] = it.options[Math.min(it.options.length - 1, i % 2)].value;
+      else if ((it.type === 'number' || it.type === 'slider') && it.min !== undefined) ans[it.id] = it.min;
       else ans[it.id] = 1;
     });
     return anon.request('POST', '/api/join/' + survey.token, { answers: ans, consent: true, durationSec: 60, pid: pid });

@@ -38,13 +38,14 @@ npm i             # 装测试要用的 jsdom / playwright；运行期仍是零�
 npm test
 ```
 
-`npm test` 按顺序跑 39 个脚本，任何一项失败即整体失败：
+`npm test` 按顺序跑 40 个脚本，任何一项失败即整体失败：
 
 | 脚本 | 检查内容 |
 | --- | --- |
 | `test/contrast_test.js` | 直接解析 `styles.css`，文字对比度达到 WCAG AA |
 | `test/a11y_test.js` | 键盘焦点可见 + 语义标记（地标、可访问名称、动效收口） |
 | `test/scales_test.js` | 内置量表的题目结构、极值计分与判读逐条自检，并做已知数值核对 |
+| `test/scale_golden_test.js` | 量表黄金值：每个修正过或新增的量表按原始文献核对总分与分级 |
 | `test/scale_engine_test.js` | 量表引擎扩展：正文待填按内容判定、kit 透传分档与待填标记、授权分级与评估者标记持久化 |
 | `test/scoring_bands_formula_test.js` | 数值分档边界与越界、MELD / MELD-Na 黄金值与截断规则 |
 | `test/scoring_validity_test.js` | 计分有效性：缺失条目、非数值选项、minValidItems/prorate 与分级边界，不完整答卷不输出被低估的总分 |
@@ -113,6 +114,7 @@ jsdom / playwright 的位置也可以用环境变量指定：`JSDOM_PATH`、`PLA
 server.js          node:http 服务：路由表、静态文件、会话与限流
 lib/
   logic.js         跳题引擎、答案文案、量表分类 —— 前后端共用的一份实现
+  scales-risk.js   临床风险评分（分档与公式计分）
   db.js            node:sqlite 建表、迁移、设置与备份
   scales*.js       内置量表模板（按科室分文件）
   scoring.js       答案校验与计分

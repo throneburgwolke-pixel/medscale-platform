@@ -65,6 +65,7 @@ const CAT_COLOR = {
   '症状评估': '#0d9488',
   '躯体症状': '#64748b',
   '生活质量': '#f59e0b',
+  '临床风险评分': '#b91c1c',
   '儿童与青少年': '#ec4899',
   '通用问卷': '#6b7280',
 };
@@ -95,6 +96,10 @@ const TIER_TAG = {
 function licenseTag(s) {
   const def = s.definition || {};
   let lic = TIER_TAG[def.licenseTier] || licenseKind(s.license, !s.isTemplate);
+  // 同为「免费但有限制」，需要向作者申请许可的必须显眼，不能和仅需引用的一视同仁
+  if (def.licenseTier === 'registration' && /申请|许可|授权/.test(String(s.license || ''))) {
+    lic = { key: 'warn', label: '免费 · 需申请许可' };
+  }
   if (def.licenseTier === 'commercial' && SHARED.pendingItems(def).length) {
     lic = { key: 'pending', label: '商业授权 · 正文待填' };
   }
@@ -1527,6 +1532,7 @@ async function viewScaleDetail(id) {
   const def = s.definition;
   const scoring = def.scoring || {};
   const usage = scaleUsage(s);
+  const pendCount = SHARED.pendingItems(def).length;
   pushRecentCode(s.code);
   const content = '' +
     '<div class="page-head">' +
@@ -1537,6 +1543,8 @@ async function viewScaleDetail(id) {
         '<span class="tag gray">' + def.items.length + ' 个条目</span>' +
         ((def.dimensions || []).length ? '<span class="tag gray">' + def.dimensions.length + ' 个维度</span>' : '') +
       '</div>' +
+      (pendCount ? '<div class="banner warn mt12">这份量表还有 <b>' + pendCount + '</b> 道题待填入授权文本。' +
+        (s.isTemplate ? '点「创建副本并编辑」，把题干和选项替换成授权版本原文后即可发布。' : '请在编辑器中补全后再发布。') + '</div>' : '') +
       '</div>' +
       '<div class="row">' +
         favBtn(s.code, s.title) +
