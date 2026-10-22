@@ -46,6 +46,35 @@ const CASES = [
     note: 'Kondrup 2003：总分 3 分起存在营养风险' },
   { code: 'nrs-2002', answers: function () { return { nrs1: 3, nrs2: 3, nrs3: 1 }; }, total: 7, cut: '高营养风险',
     note: 'Kondrup 2003：总分 ≥5 为高营养风险' },
+  { code: 'cha2ds2-vasc', answers: function () {
+      return { chf: 1, htn: 1, age: 2, dm: 1, stroke: 2, vascular: 1, female: 1 };
+    }, total: 9, cut: '高危', note: 'Lip 2010：各项均阳性合计 9 分' },
+  { code: 'has-bled', answers: function (s) {
+      const a = {};
+      s.items.forEach(function (it) { a[it.id] = 1; });
+      return a;
+    }, total: 9, cut: '高出血风险', note: 'Pisters 2010：9 项各 1 分' },
+  { code: 'curb-65', answers: function () { return { confusion: 1, urea: 10, rr: 32, bp: 1, age: 70 }; },
+    total: 5, cut: '高危', note: 'Lim 2003：5 项均阳性 = 5 分' },
+  { code: 'curb-65', answers: function () { return { confusion: 0, urea: 5, rr: 18, bp: 0, age: 40 }; },
+    total: 0, cut: '低危', note: 'Lim 2003：全部阴性 = 0 分（可门诊）' },
+  { code: 'qsofa', answers: function () { return { rr: 25, sbp: 80, gcs: 10 }; },
+    total: 3, cut: '高风险', note: 'Sepsis-3：三项均阳性 = 3 分' },
+  { code: 'wells-dvt', answers: function () {
+      return { cancer: 1, bedridden: 1, calf: 1, collateral: 1, legswollen: 1, tenderness: 1, edema: 1, paralysis: 1, prior: 1, alt: 0 };
+    }, total: 9, cut: '很可能', note: 'Wells 1997：9 项阳性 = 9 分' },
+  { code: 'wells-dvt', answers: function () {
+      return { cancer: 0, bedridden: 0, calf: 0, collateral: 0, legswollen: 0, tenderness: 0, edema: 0, paralysis: 0, prior: 0, alt: -2 };
+    }, total: -2, cut: '不太可能', note: 'Wells 1997：其他诊断更可能计 -2 分' },
+  { code: 'wells-pe', answers: function () {
+      return { dvtsigns: 3, pefirst: 3, hr: 1.5, immobile: 1.5, prior: 1.5, hemoptysis: 1, malignancy: 1 };
+    }, total: 12.5, cut: '高度可能', note: 'Wells 2000：7 项均阳性 = 12.5 分' },
+  { code: 'news2', answers: function () {
+      return { rr: 16, spo2: 98, oxygen: 0, temp: 37, sbp: 120, pulse: 70, acvpu: 0 };
+    }, total: 0, cut: '低风险', note: 'RCP 2017：全部参数正常 = 0 分' },
+  { code: 'news2', answers: function () {
+      return { rr: 30, spo2: 88, oxygen: 2, temp: 34, sbp: 85, pulse: 200, acvpu: 3 };
+    }, total: 20, cut: '高风险', note: 'RCP 2017：各参数均在最重档 = 20 分' },
 ];
 
 console.log('\n【黄金值】' + CASES.length + ' 条');
