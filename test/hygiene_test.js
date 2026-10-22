@@ -52,6 +52,18 @@ function walk(dir, out) {
   t.ok(/process\.env\.JSDOM_PATH/.test(domSrc), '找不到 jsdom 时仍可用 JSDOM_PATH 指定位置');
   t.ok(/未找到 jsdom|npm i -D jsdom/.test(domSrc), '缺失时给出可照做的安装指引');
 
+  console.log('\n【3b】public/ 只放要发布的文件');
+  // public/ 整个目录会作为静态资源部署到 Cloudflare，多余文件会一起上线
+  const EXPECTED_ASSETS = ['app.js', 'common.js', 'fill.html', 'fill.js', 'index.html', 'logic.js', 'styles.css'];
+  const actualAssets = fs.readdirSync(path.join(ROOT, 'public')).filter(function (n) { return n !== '.DS_Store'; }).sort();
+  const extra = actualAssets.filter(function (n) { return EXPECTED_ASSETS.indexOf(n) < 0; });
+  t.ok(extra.length === 0, 'public/ 里没有多余文件（会被当作静态资源一起部署）', extra.join(', '));
+  const missing = EXPECTED_ASSETS.filter(function (n) { return actualAssets.indexOf(n) < 0; });
+  t.ok(missing.length === 0, 'public/ 里的预期文件都在', missing.join(', '));
+  const syncSrc = pkg.scripts['sync:logic'] || '';
+  t.ok(/^cp lib\/logic\.js public\/logic\.js/.test(syncSrc) && /echo '[^']*'/.test(syncSrc),
+    'sync:logic 的提示语被引号包住（否则 -> 会被当成重定向，在 public/ 里生成垃圾文件）', syncSrc);
+
   console.log('\n【4】仓库里没有历史快照目录，且有可照做的工程说明');
   t.ok(!fs.existsSync(path.join(ROOT, 'ui_backup')), 'ui_backup/ 已移出仓库（归档在仓库外）');
   t.ok(fs.existsSync(path.join(ROOT, 'docs', '使用说明.md')), '使用说明随仓库分发');
