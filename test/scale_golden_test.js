@@ -75,6 +75,24 @@ const CASES = [
   { code: 'news2', answers: function () {
       return { rr: 30, spo2: 88, oxygen: 2, temp: 34, sbp: 85, pulse: 200, acvpu: 3 };
     }, total: 20, cut: '高风险', note: 'RCP 2017：各参数均在最重档 = 20 分' },
+  { code: 'padua', answers: function (s) {
+      const a = {};
+      s.items.forEach(function (it) { a[it.id] = it.options[1].value; });
+      return a;
+    }, total: 20, cut: '高危', note: 'Barbar 2010：11 项均阳性 = 20 分（≥4 为高危）' },
+  { code: 'padua', answers: function (s) {
+      const a = {};
+      s.items.forEach(function (it) { a[it.id] = 0; });
+      return a;
+    }, total: 0, cut: '低危', note: 'Barbar 2010：全部阴性 = 0 分' },
+  { code: 'epds', answers: function (s) { return allAs(s, 1); }, total: 10, cut: '可能存在抑郁',
+    note: 'Cox 1987：10 项各 1 分 = 10（≥10 提示可能存在抑郁）' },
+  { code: 'epds', answers: function (s) { return allAs(s, 3); }, total: 30, cut: '很可能抑郁',
+    note: 'Cox 1987：10 项各 3 分 = 30（≥13 很可能抑郁）' },
+  { code: 'ces-d', answers: function (s) { return allAs(s, 0); }, total: 0, cut: '未达筛查界值',
+    note: 'Radloff 1977：全部 0 分 = 0' },
+  { code: 'ces-d', answers: function (s) { return allAs(s, 3); }, total: 60, cut: '可能存在抑郁症状',
+    note: 'Radloff 1977：20 项各 3 分 = 60（≥16 提示抑郁症状）' },
 ];
 
 console.log('\n【黄金值】' + CASES.length + ' 条');

@@ -114,6 +114,7 @@ jsdom / playwright 的位置也可以用环境变量指定：`JSDOM_PATH`、`PLA
 server.js          node:http 服务：路由表、静态文件、会话与限流
 lib/
   logic.js         跳题引擎、答案文案、量表分类 —— 前后端共用的一份实现
+  scales-psych.js  精神心理自评扩充（EPDS、CES-D）
   scales-risk.js   临床风险评分（分档与公式计分）
   db.js            node:sqlite 建表、迁移、设置与备份
   scales*.js       内置量表模板（按科室分文件）
