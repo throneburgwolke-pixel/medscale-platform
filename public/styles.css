@@ -586,9 +586,22 @@ select, input, .btn { font-size: var(--fs-14); line-height: 1.45; }
 .import-preview { max-height: 320px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; line-height: 1.8; background: var(--surface-2); border-radius: var(--radius-sm); padding: var(--space-3); border: 1px solid var(--line); }
 .import-thumb { max-width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--line); }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+/* 路由加载反馈：慢请求超过 120ms 才出现，避免快速切换时闪烁 */
+#nav-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  width: 100%;
+  height: 2px;
+  pointer-events: none;
+  opacity: 0;
+  transform: scaleX(.08);
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--accent), var(--violet), var(--brand-solid));
+  transition: opacity .15s ease-out, transform .35s var(--ease-out);
 }
+#nav-progress.on { opacity: 1; transform: scaleX(.82); }
 
 /* ================= 统一卡片结构（所有列等宽等高） ================= */
 .grid > * { min-width: 0; }

@@ -134,6 +134,45 @@ function readCodeList(key) {
 function writeCodeList(key, list) {
   try { localStorage.setItem(key, JSON.stringify(list.slice(0, 60))); } catch (e) { /* 隐私模式可能不可用 */ }
 }
+
+/* 编辑器草稿：按账号+量表隔离，只用于本机恢复，不写进数据库 */
+const EDITOR_DRAFT_PREFIX = 'medscale_editor_draft_';
+let editorDirty = false;
+let editorDraftTimer = null;
+let editorDraftKey = null;
+
+function editorUserKey() {
+  const id = state.session && state.session.user && state.session.user.id;
+  return id ? 'u' + id : 'session';
+}
+function editorStorageKey(scaleId) {
+  return EDITOR_DRAFT_PREFIX + editorUserKey() + '_' + (scaleId || 'new');
+}
+function readEditorDraft(scaleId) {
+  try {
+    const d = JSON.parse(localStorage.getItem(editorStorageKey(scaleId)) || 'null');
+    return d && d.draft && d.savedAt ? d : null;
+  } catch (e) { return null; }
+}
+function clearEditorDraft(scaleId) {
+  try { localStorage.removeItem(editorStorageKey(scaleId)); } catch (e) { /* ignore */ }
+}
+/** 输入后立即标记未保存，防抖写入；快照与键名都取当下值，避免切页后写错量表 */
+function scheduleEditorDraft() {
+  editorDirty = true;
+  if (!editorDraftKey || !draft) return;
+  if (editorDraftTimer) clearTimeout(editorDraftTimer);
+  const key = editorDraftKey;
+  const snapshot = JSON.stringify({ savedAt: new Date().toISOString(), draft: draft, isNew: draftIsNew });
+  editorDraftTimer = setTimeout(function () {
+    try { localStorage.setItem(key, snapshot); } catch (e) { /* 隐私模式可能不可用 */ }
+  }, 400);
+}
+window.addEventListener('beforeunload', function (e) {
+  if (!editorDirty) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
 function favCodes() { return readCodeList(FAV_KEY); }
 function isFavCode(code) { return !!code && favCodes().indexOf(code) >= 0; }
 function toggleFavCode(code) {
@@ -1745,6 +1784,7 @@ function blankItem(type, no) {
 }
 
 async function viewBuilder(id) {
+  if (editorDraftTimer) { clearTimeout(editorDraftTimer); editorDraftTimer = null; }
   if (id) {
     const s = await api('/scales/' + id);
     // 请求期间用户可能已切到另一个编辑器；旧响应不能覆盖新页面或写错量表
@@ -1760,9 +1800,23 @@ async function viewBuilder(id) {
     draft = s;
     draftIsNew = false;
     normalizeDraft();
+    editorDraftKey = editorStorageKey(id);
+    const pending = readEditorDraft(id);
+    const newer = pending && (!s.updatedAt || Date.parse(pending.savedAt) > Date.parse(s.updatedAt));
+    if (newer) {
+      draft = pending.draft;
+      draftIsNew = false;
+      normalizeDraft();
+      editorDirty = true;
+      toast('已恢复上次未保存的编辑');
+    } else {
+      editorDirty = false;
+    }
   } else {
     draft = newBlankScale();
     draftIsNew = true;
+    editorDraftKey = editorStorageKey(null);
+    editorDirty = false;
   }
   renderBuilder(true);
 }
@@ -1786,7 +1840,10 @@ function normalizeDraft() {
 
 function renderBuilder(skipSync) {
   // 同一草稿重绘前同步当前输入；首次载入另一量表时不得读取旧页面的表单。
-  if (!skipSync) syncBasicFields();
+  if (!skipSync) {
+    syncBasicFields();
+    scheduleEditorDraft();
+  }
   const def = draft.definition;
   const sc = def.scoring;
   const content = '' +
@@ -2031,7 +2088,7 @@ function bindBuilder() {
   ['f-title', 'f-category', 'f-tags', 'f-desc', 'f-instructions', 'f-source', 'f-license',
     'f-consent-text', 'f-method', 'f-mult', 'f-revmax'].forEach(function (id) {
     const el = document.getElementById(id);
-    if (el) el.oninput = el.onchange = function () { syncBasicFields(); };
+    if (el) el.oninput = el.onchange = function () { syncBasicFields(); scheduleEditorDraft(); };
   });
   // 输入即写入草稿
   const bindFields = function (root) {
@@ -2177,6 +2234,7 @@ function applyItemField(el) {
   else if (f === 'hint') { if (el.value) it.hint = el.value; else delete it.hint; }
   else if (f === 'min' || f === 'max') it[f] = el.value === '' ? undefined : Number(el.value);
   else if (f === 'unit') it.unit = el.value;
+  scheduleEditorDraft();
   if (el.tagName === 'SELECT' && f === 'type') {
     if (['radio', 'select', 'checkbox'].indexOf(it.type) >= 0 && !it.options) {
       it.options = blankItem('radio').options;
@@ -2194,6 +2252,7 @@ function applyOptionField(el) {
     const option = it.options[Number(el.dataset.optScore)];
     if (option.score !== null) option.score = el.value === '' ? 0 : Number(el.value);
   }
+  scheduleEditorDraft();
 }
 
 /** 跳题规则字段变更 */
@@ -2231,6 +2290,7 @@ function applySkipField(card, el, kind) {
     const k = Number(el.dataset.skipTarget);
     if (it.skip[k]) it.skip[k].target = el.value;
   }
+  scheduleEditorDraft();
 }
 
 function itemAction(card, act) {
@@ -2338,12 +2398,17 @@ async function saveBuilder(thenPublish, previewOnly) {
     }
     draft = saved;
     normalizeDraft();
+    editorDirty = false;
+    if (editorDraftTimer) { clearTimeout(editorDraftTimer); editorDraftTimer = null; }
+    clearEditorDraft(saved.id);
+    editorDraftKey = editorStorageKey(saved.id);
     state.scales = [];
     toast('已保存');
     if (location.hash !== '#/builder/' + saved.id) {
       history.replaceState(null, '', '#/builder/' + saved.id);
     }
-    renderBuilder();
+    // 保存后的重绘不得重新标脏：表单值已与刚保存的草稿一致
+    renderBuilder(true);
     if (thenPublish) openPublishDialog(saved.id);
   } catch (e) {
     toast(e.message, 'err');
@@ -3731,6 +3796,15 @@ function drawHistogram(cv, values, range, meanValue, axisLabel) {
 /* ================= 主调度 ================= */
 async function render() {
   const r = currentRoute();
+  const progress = document.getElementById('nav-progress');
+  let progressTimer = null;
+  if (progress && r.name !== 'anchor') {
+    progressTimer = setTimeout(function () { progress.classList.add('on'); }, 120);
+  }
+  const endProgress = function () {
+    if (progressTimer) clearTimeout(progressTimer);
+    if (progress) progress.classList.remove('on');
+  };
   try {
     if (r.name === 'fill') {
       if (!r.token) {
@@ -3775,6 +3849,8 @@ async function render() {
     $('#app').innerHTML = '<div class="main"><div class="card"><div class="empty">' +
       '<span class="big">⚠️</span>页面加载失败：' + esc(e.message) +
       '<div class="mt16"><button class="btn" data-reload="1">重新加载</button></div></div></div></div>';
+  } finally {
+    endProgress();
   }
 }
 

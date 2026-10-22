@@ -616,5 +616,57 @@ if (!dom.available()) {
     '保存的是当前公式量表，而不是旧求和量表', raceSaved.definition.scoring);
   raceDom.w.fetch = realFetch;
 
+  console.log('\n【19】编辑器草稿可恢复、未保存离开会提醒');
+  const draftScale = await admin.request('POST', '/api/scales', { scale: {
+    title: '草稿测试', category: '情绪与心理',
+    definition: { items: [{ id: 'd1', no: 1, text: '题干', type: 'radio', options: [{ label: '是', value: 1 }, { label: '否', value: 0 }] }],
+      dimensions: [{ id: 'total', name: '总分', items: ['d1'] }], scoring: { method: 'sum' } },
+  } });
+  const draftDom = dom.makeDom(srv, admin.cookieStore);
+  await dom.wait(320);
+  await dom.goto(draftDom, '#/builder/' + draftScale.json.id);
+  await dom.wait(300);
+  const titleInput = draftDom.d.getElementById('f-title');
+  titleInput.value = '未保存的新标题';
+  titleInput.dispatchEvent(new draftDom.w.Event('input'));
+  await dom.wait(700);
+  const leaveEvent = new draftDom.w.Event('beforeunload', { cancelable: true });
+  draftDom.w.dispatchEvent(leaveEvent);
+  t.ok(leaveEvent.defaultPrevented, '有未保存修改时离开页面会被提醒');
+  await dom.goto(draftDom, '#/scales');
+  await dom.wait(200);
+  await dom.goto(draftDom, '#/builder/' + draftScale.json.id);
+  await dom.wait(400);
+  t.ok(draftDom.d.getElementById('f-title').value === '未保存的新标题', '重新打开编辑器恢复未保存的标题草稿');
+  draftDom.d.getElementById('b-save').click();
+  await dom.wait(500);
+  const draftSaved = (await admin.request('GET', '/api/scales/' + draftScale.json.id)).json;
+  t.ok(draftSaved.title === '未保存的新标题', '恢复后的草稿可以正常保存', draftSaved.title);
+  const afterSaveEvent = new draftDom.w.Event('beforeunload', { cancelable: true });
+  draftDom.w.dispatchEvent(afterSaveEvent);
+  t.ok(!afterSaveEvent.defaultPrevented, '保存后不再提示未保存');
+
+  console.log('\n【20】慢页面切换有进度反馈，且不影响无障碍');
+  const navDom = dom.makeDom(srv, admin.cookieStore);
+  await dom.wait(320);
+  const slowFetch = navDom.w.fetch;
+  navDom.w.fetch = function (p, o) {
+    if (p === '/api/surveys' && (!o || !o.method || o.method === 'GET')) {
+      return new Promise(function (resolve, reject) {
+        setTimeout(function () { slowFetch(p, o).then(resolve, reject); }, 250);
+      });
+    }
+    return slowFetch(p, o);
+  };
+  navDom.w.location.hash = '#/surveys';
+  navDom.w.dispatchEvent(new navDom.w.Event('hashchange'));
+  await dom.wait(200);
+  const progressBar = navDom.d.getElementById('nav-progress');
+  t.ok(!!progressBar && progressBar.classList.contains('on'), '页面加载中显示顶部进度条', progressBar && progressBar.className);
+  t.ok(progressBar && progressBar.getAttribute('aria-hidden') === 'true', '进度条不被读屏软件朗读');
+  await dom.wait(600);
+  t.ok(progressBar && !progressBar.classList.contains('on'), '页面渲染完成后进度条收起', progressBar && progressBar.className);
+  navDom.w.fetch = slowFetch;
+
   process.exit(t.done('前端行为'));
 })();
