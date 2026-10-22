@@ -92,5 +92,33 @@ const t = http.makeCounter();
   t.ok(Array.isArray(meldRep.json.scores.dimensions) && meldRep.json.scores.dimensions.length === 0,
     '无维度量表的维度统计为空数组', meldRep.json.scores && meldRep.json.scores.dimensions);
 
+  console.log('\n【6】知情同意仅接受布尔true，拒绝类型伪装且不保存');
+  const dbm = require(path.join(ROOT, 'lib', 'db.js'));
+  const consentScale = await c.request('POST', '/api/scales', { scale: { title: '严格知情同意', consentOn: true,
+    consentText: '请同意参与', definition: { items: [{ id: 'q', no: 1, type: 'number', text: '次数', min: 0 }], scoring: { method: 'sum' } } } });
+  const consentSurvey = await c.request('POST', '/api/surveys', { scaleId: consentScale.json.id, name: '同意类型测试' });
+  for (const consent of [undefined, false, 'false', {}, []]) {
+    const before = dbm.db.prepare('SELECT COUNT(*) AS n FROM responses').get().n;
+    const response = await anon.request('POST', '/api/join/' + consentSurvey.json.token, { answers: { q: 2 }, consent: consent });
+    t.ok(response.status === 400 && response.json && /知情同意/.test(response.json.error),
+      'Node 必选同意拒绝：' + JSON.stringify(consent), response.json);
+    t.ok(dbm.db.prepare('SELECT COUNT(*) AS n FROM responses').get().n === before, '拒绝同意时responses行数不增加');
+  }
+  const consented = await anon.request('POST', '/api/join/' + consentSurvey.json.token, { answers: { q: 2 }, consent: true });
+  t.ok(consented.status === 200 && consented.json.ok === true, '布尔true正常提交', consented.json);
+  const consentRows = dbm.listResponses(consentSurvey.json.id);
+  t.ok(consentRows.length === 1 && consentRows[0].consent === true, '必选同意只保存一份布尔true答卷', consentRows.length);
+
+  for (const consent of [false, 'false', {}, []]) {
+    const before = dbm.listResponses(sv.json.id).length;
+    const response = await anon.request('POST', '/api/join/' + sv.json.token, { answers: { r1: 1 }, consent: consent });
+    const rows = dbm.listResponses(sv.json.id);
+    t.ok(response.status === 200 && rows.length === before + 1, '未要求同意时仍可提交：' + JSON.stringify(consent), response.json);
+    t.ok(rows[rows.length - 1].consent === false, '非布尔true不得被记录为已同意：' + JSON.stringify(consent));
+  }
+  const optionalTrue = await anon.request('POST', '/api/join/' + sv.json.token, { answers: { r1: 1 }, consent: true });
+  t.ok(optionalTrue.status === 200 && dbm.listResponses(sv.json.id).slice(-1)[0].consent === true,
+    '未要求同意时显式true仍记录为已同意');
+
   process.exit(t.done('发布守卫'));
 }()).catch(function (e) { console.error('测试异常：', e && e.stack || e); process.exit(1); });

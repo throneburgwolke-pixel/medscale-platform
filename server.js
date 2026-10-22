@@ -1190,7 +1190,7 @@ route('POST', '/api/join/:token', async function (ctx) {
   if (!state.open) return sendJson(ctx.res, 400, { error: state.reason });
 
   const body = await readBody(ctx.req);
-  if (scale.consentOn && !body.consent) {
+  if (scale.consentOn && body.consent !== true) {
     return sendJson(ctx.res, 400, { error: '请先阅读并同意知情同意说明' });
   }
   // 随访：受试者编号（用于跨时点配对）
@@ -1213,7 +1213,7 @@ route('POST', '/api/join/:token', async function (ctx) {
 
   const saved = dbm.saveResponse(s, scale, {
     answers: body.answers,
-    consent: !!body.consent,
+    consent: body.consent === true,
     durationSec: body.durationSec ? Math.round(Number(body.durationSec)) : null,
     pid: body.pid || null,
     startedAt: body.startedAt || null,

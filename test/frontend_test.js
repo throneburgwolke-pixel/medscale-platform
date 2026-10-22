@@ -471,5 +471,150 @@ if (!dom.available()) {
   t.ok(/rater === 'clinician'/.test(fillSrc2) && /评估者填写/.test(fillSrc2) && /评估已记录/.test(fillSrc2),
     'fill.js 为评估者量表切换文案');
 
+  console.log('\n【16】编辑和保存不得改变具名公式');
+  const formulaTemplate = (await admin.request('GET', '/api/scales')).json.items.find(function (s) { return s.code === 'meld'; });
+  const formulaCopy = await admin.request('POST', '/api/scales', { fromTemplateId: formulaTemplate.id });
+  const sumScale = await admin.request('POST', '/api/scales', { scale: {
+    title: '未保存的求和自建量表', category: '通用问卷',
+    definition: { items: [plainItem('sum1')], dimensions: [{ id: 'total', name: '总分', items: ['sum1'] }], scoring: { method: 'sum' } },
+  } });
+  const formulaDom = dom.makeDom(srv, admin.cookieStore);
+  await dom.wait(320);
+  await dom.goto(formulaDom, '#/builder/' + sumScale.json.id);
+  t.ok(formulaDom.d.getElementById('f-method').value === 'sum', '先进入求和自建量表编辑器');
+  await dom.goto(formulaDom, '#/builder/' + formulaCopy.json.id);
+  t.ok(formulaDom.d.getElementById('f-method').value === 'formula', '直接切换量表时编辑器保留公式计分选中项');
+  formulaDom.d.getElementById('b-save').click();
+  await dom.wait(500);
+  const formulaSaved = (await admin.request('GET', '/api/scales/' + formulaCopy.json.id)).json;
+  t.ok(formulaSaved.definition.scoring.method === 'formula' && formulaSaved.definition.scoring.formula === 'meld',
+    '保存后仍是MELD公式，而不是求和', formulaSaved.definition.scoring);
+  const scoredAfterEdit = require(path.join(ROOT, 'lib', 'scoring.js')).scoreResponse(formulaSaved.definition,
+    { bili: 51.3, inr: 2, cr: 176.8, dialysis: 0 });
+  t.ok(scoredAfterEdit.total === 25, '编辑器保存后的典型MELD输入仍得到25分', scoredAfterEdit.total);
+
+  formulaDom.d.getElementById('b-preview').click();
+  await dom.wait(200);
+  [['bili', '51.3'], ['inr', '2'], ['cr', '176.8']].forEach(function (entry) {
+    const input = formulaDom.d.querySelector('[data-in="' + entry[0] + '"]');
+    input.value = entry[1];
+    input.dispatchEvent(new formulaDom.w.Event('input', { bubbles: true }));
+  });
+  formulaDom.d.querySelector('[data-in="dialysis"][value="0"]').click();
+  formulaDom.d.getElementById('f-next').click();
+  await dom.wait(100);
+  const originalPreviewFetch = formulaDom.w.fetch;
+  formulaDom.w.fetch = function (url, opts) {
+    if (url === '/api/preview-score') return Promise.reject(new Error('计分暂时不可用'));
+    return originalPreviewFetch(url, opts);
+  };
+  formulaDom.d.getElementById('f-submit').click();
+  await dom.wait(200);
+  t.ok(!!formulaDom.d.getElementById('f-submit'), '预览计分失败保留核对页，不展示成功');
+  t.ok(/计分暂时不可用/.test(formulaDom.d.getElementById('toast-host').textContent), '预览计分失败向用户说明原因');
+  formulaDom.w.fetch = originalPreviewFetch;
+  const retryPreview = formulaDom.d.getElementById('f-submit');
+  if (retryPreview) retryPreview.click();
+  await dom.wait(260);
+  t.ok(/评分结果/.test(formulaDom.d.body.textContent), '成功重试后保留评估者的评分文案');
+  t.ok(/25/.test(formulaDom.d.body.textContent), '成功重试无需重新填写，原答案仍得到25分');
+
+  console.log('\n【17】独立分值的选项编辑保留编码及不可计分语义');
+  const optionTemplates = (await admin.request('GET', '/api/scales')).json.items;
+  const hbiTemplate = optionTemplates.find(function (s) { return s.code === 'hbi'; });
+  const hbiCopy = await admin.request('POST', '/api/scales', { fromTemplateId: hbiTemplate.id });
+  const hbiDom = dom.makeDom(srv, admin.cookieStore);
+  await dom.wait(320);
+  await dom.goto(hbiDom, '#/builder/' + hbiCopy.json.id);
+  const jointRow = hbiDom.d.querySelector('.item-editor[data-id="hbi5"] [data-opt-label="1"]').closest('.opt-row');
+  const jointScore = jointRow.querySelector('input[aria-label="选项分值"]');
+  t.ok(jointScore.value === '1', 'HBI 关节痛分值显示1，而不是字符串编码的空值', jointScore.value);
+  t.ok(jointScore.dataset.optScore === '1' && jointScore.dataset.optValue === undefined,
+    '独立分值框绑定 score 而非编码 value');
+  t.ok(/arthralgia/.test(jointRow.textContent), '关节痛的原编码以只读文字显示', jointRow.textContent);
+  jointScore.value = '2';
+  jointScore.dispatchEvent(new hbiDom.w.Event('input', { bubbles: true }));
+  const normalValue = hbiDom.d.querySelector('.item-editor[data-id="hbi2"] [data-opt-value="1"]');
+  normalValue.value = '1.5';
+  normalValue.dispatchEvent(new hbiDom.w.Event('input', { bubbles: true }));
+  hbiDom.d.getElementById('b-save').click();
+  await dom.wait(500);
+  const hbiSaved = (await admin.request('GET', '/api/scales/' + hbiCopy.json.id)).json;
+  const jointSaved = hbiSaved.definition.items.find(function (it) { return it.id === 'hbi5'; }).options[1];
+  t.ok(jointSaved.value === 'arthralgia' && jointSaved.score === 2,
+    '复制HBI后编辑并保存：关节痛编码仍arthralgia，分值为2', jointSaved);
+  const normalSaved = hbiSaved.definition.items.find(function (it) { return it.id === 'hbi2'; }).options[1];
+  t.ok(normalSaved.value === 1.5 && normalSaved.score === undefined, '无独立score的选项仍编辑value', normalSaved);
+  const hbiScore = await admin.request('POST', '/api/preview-score', { definition: hbiSaved.definition,
+    answers: { hbi1: 0, hbi2: 0, hbi3: 0, hbi4: 0, hbi5: ['arthralgia'] } });
+  t.ok(hbiScore.status === 200 && hbiScore.json.total === 2, '保存后的关节痛编码实际计入总分2', hbiScore.json);
+
+  const ssrsTemplate = optionTemplates.find(function (s) { return s.code === 'ssrs'; });
+  const ssrsCopy = await admin.request('POST', '/api/scales', { fromTemplateId: ssrsTemplate.id });
+  const ssrsDef = ssrsCopy.json.definition;
+  const ssrsItem = ssrsDef.items.find(function (it) { return (it.options || []).some(function (o) {
+    return typeof o.value === 'number' && o.score !== undefined && o.value !== o.score;
+  }); });
+  const ssrsIndex = ssrsItem.options.findIndex(function (o) { return o.score !== undefined && o.value !== o.score; });
+  const ssrsOption = ssrsItem.options[ssrsIndex];
+  await dom.goto(hbiDom, '#/builder/' + ssrsCopy.json.id);
+  const ssrsRow = hbiDom.d.querySelector('.item-editor[data-id="' + ssrsItem.id + '"] [data-opt-label="' + ssrsIndex + '"]').closest('.opt-row');
+  const ssrsInput = ssrsRow.querySelector('input[aria-label="选项分值"]');
+  t.ok(ssrsInput.value === String(ssrsOption.score), 'SSRS 数字编码的分值框显示实际score', ssrsInput.value);
+  ssrsInput.value = '2';
+  ssrsInput.dispatchEvent(new hbiDom.w.Event('input', { bubbles: true }));
+  hbiDom.d.getElementById('b-save').click();
+  await dom.wait(500);
+  const ssrsSaved = (await admin.request('GET', '/api/scales/' + ssrsCopy.json.id)).json.definition.items
+    .find(function (it) { return it.id === ssrsItem.id; }).options[ssrsIndex];
+  t.ok(ssrsSaved.value === ssrsOption.value && ssrsSaved.score === 2, 'SSRS 编辑分值也不改数字编码', ssrsSaved);
+
+  const nihssTemplate = optionTemplates.find(function (s) { return s.code === 'nihss'; });
+  const nihssCopy = await admin.request('POST', '/api/scales', { fromTemplateId: nihssTemplate.id });
+  await dom.goto(hbiDom, '#/builder/' + nihssCopy.json.id);
+  const unItem = nihssCopy.json.definition.items.find(function (it) { return (it.options || []).some(function (o) { return o.value === 'un'; }); });
+  const unIndex = unItem.options.findIndex(function (o) { return o.value === 'un'; });
+  const unRow = hbiDom.d.querySelector('.item-editor[data-id="' + unItem.id + '"] [data-opt-label="' + unIndex + '"]').closest('.opt-row');
+  const unScore = unRow.querySelector('input[aria-label="选项分值"]');
+  t.ok(unScore.value === '' && (unScore.disabled || unScore.readOnly), 'NIHSS UN不可计分框为空且不可编辑');
+  // 即使程序派发输入事件，也不能把不可计分null转换为零。
+  unScore.value = '';
+  unScore.dispatchEvent(new hbiDom.w.Event('input', { bubbles: true }));
+  hbiDom.d.getElementById('b-save').click();
+  await dom.wait(500);
+  const nihssSaved = (await admin.request('GET', '/api/scales/' + nihssCopy.json.id)).json;
+  const savedUN = nihssSaved.definition.items.find(function (it) { return it.id === unItem.id; }).options[unIndex];
+  t.ok(savedUN.value === 'un' && savedUN.score === null, 'NIHSS 保存后UN编码与score:null原样保留', savedUN);
+
+  console.log('\n【18】快速切换编辑器时旧请求不得覆盖新页面');
+  const raceSumScale = await admin.request('POST', '/api/scales', { scale: {
+    title: '慢加载求和量表', category: '情绪与心理',
+    definition: { items: [{ id: 's1', no: 1, text: '题干', type: 'radio', options: [{ label: '是', value: 1 }, { label: '否', value: 0 }] }],
+      dimensions: [{ id: 'total', name: '总分', items: ['s1'] }], scoring: { method: 'sum' } },
+  } });
+  const formulaCopy2 = await admin.request('POST', '/api/scales', { fromTemplateId: formulaTemplate.id });
+  const raceDom = dom.makeDom(srv, admin.cookieStore);
+  await dom.wait(320);
+  const realFetch = raceDom.w.fetch;
+  raceDom.w.fetch = function (p, o) {
+    if (p === '/api/scales/' + raceSumScale.json.id && (!o || !o.method || o.method === 'GET')) {
+      return new Promise(function (resolve, reject) {
+        setTimeout(function () { realFetch(p, o).then(resolve, reject); }, 350);
+      });
+    }
+    return realFetch(p, o);
+  };
+  await dom.goto(raceDom, '#/builder/' + raceSumScale.json.id);
+  await dom.goto(raceDom, '#/builder/' + formulaCopy2.json.id);
+  await dom.wait(700);
+  t.ok(raceDom.w.location.hash === '#/builder/' + formulaCopy2.json.id, '地址仍是后打开的量表', raceDom.w.location.hash);
+  t.ok(raceDom.d.getElementById('f-method').value === 'formula', '慢请求返回后编辑器仍是公式计分', raceDom.d.getElementById('f-method').value);
+  raceDom.d.getElementById('b-save').click();
+  await dom.wait(500);
+  const raceSaved = (await admin.request('GET', '/api/scales/' + formulaCopy2.json.id)).json;
+  t.ok(raceSaved.definition.scoring.method === 'formula' && raceSaved.definition.scoring.formula === 'meld',
+    '保存的是当前公式量表，而不是旧求和量表', raceSaved.definition.scoring);
+  raceDom.w.fetch = realFetch;
+
   process.exit(t.done('前端行为'));
 })();

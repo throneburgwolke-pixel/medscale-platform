@@ -195,6 +195,9 @@ ok(CATALOG.every(function (c) { return c.name && c.category && c.items && c.scor
   '目录条目字段完整（名称/分类/条目数/计分/授权）');
 const cats = new Set(CATALOG.map(function (c) { return c.category; }));
 ok(cats.size >= 8, '目录覆盖 ' + cats.size + ' 个分类');
+['SOFA', 'APACHE II', 'Caprini', 'Glasgow-Blatchford', '改良 Geneva'].forEach(function (name) {
+  ok(CATALOG.some(function (c) { return c.name.indexOf(name) >= 0; }), '目录列出复杂/版本化评分：' + name);
+});
 
 console.log('\n———————————————————————————————');
 console.log('  量表库自检：通过 ' + pass + ' 项，失败 ' + fail + ' 项');

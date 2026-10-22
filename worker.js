@@ -413,12 +413,15 @@ async function api(method, path, url, request, env) {
     if (!rl.allowed) return json(429, { error: '提交过于频繁，请 ' + rl.retryAfterSec + ' 秒后再试' });
     const b = await readJson(request);
     const scale = await dbm.getScale(survey.scaleId);
+    if (scale.consentOn && b.consent !== true) return json(400, { error: '请先阅读并同意知情同意说明' });
     if (survey.subjectMode === 'self' && b.subjectId) {
       const ex = await dbm.findResponseBySubject(survey.id, b.subjectId);
       if (ex) return json(409, { error: '该受试者编号已提交过本次时点答卷，请勿重复提交。' });
     }
+    const errors = validateAnswers(scale.definition, b.answers || {});
+    if (errors.length) return json(400, { error: '有题目未作答', details: errors });
     const r = await dbm.saveResponse(survey, scale, { answers: b.answers, pid: b.pid, durationSec: b.durationSec,
-      consent: b.consent, meta: { ip: survey.collectMeta ? ip : '', ua: survey.collectMeta ? (request.headers.get('user-agent') || '') : '' },
+      consent: b.consent === true, meta: { ip: survey.collectMeta ? ip : '', ua: survey.collectMeta ? (request.headers.get('user-agent') || '') : '' },
       startedAt: b.startedAt, subjectId: b.subjectId });
     // 字段名与 Node 版保持一致：填写页读 result，Worker 原先返回 scores，线上「显示结果」一直没生效
     const payload = { ok: true, pid: r.pid, subjectId: r.subjectId };

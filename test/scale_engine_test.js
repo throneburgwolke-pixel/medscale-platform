@@ -36,6 +36,28 @@ t.ok(done.items[0].textPending === undefined, '全部填完 → 清除标记', d
 t.ok(L.pendingItems(done).length === 0, '全部填完 → 不再待填');
 t.ok(L.pendingItems({}).length === 0 && L.pendingItems(null).length === 0, '空定义安全返回空数组');
 
+const browserLogic = require(path.join(ROOT, 'public', 'logic.js'));
+[L, browserLogic].forEach(function (logic, i) {
+  const name = i === 0 ? '服务端' : '浏览器';
+  [undefined, null, '', ' \t\n'].forEach(function (blank) {
+    const emptyText = { items: [{ id: 'empty-text', textPending: true, text: blank,
+      options: [{ label: '已填写', value: 1 }] }] };
+    logic.settlePending(emptyText);
+    t.ok(emptyText.items[0].textPending === true, name + '题干空白不得清除待填标记：' + JSON.stringify(blank));
+    t.ok(JSON.stringify(logic.pendingItems(emptyText)) === '["empty-text"]', name + '空题干仍被列为待填');
+    const emptyOption = { items: [{ id: 'empty-option', textPending: true, text: '已填写题干',
+      options: [{ label: '已填写', value: 0 }, { label: blank, value: 1 }] }] };
+    logic.settlePending(emptyOption);
+    t.ok(emptyOption.items[0].textPending === true, name + '任何选项空白不得清除待填标记：' + JSON.stringify(blank));
+    t.ok(JSON.stringify(logic.pendingItems(emptyOption)) === '["empty-option"]', name + '空选项仍被列为待填');
+  });
+  const plainBlank = { items: [{ id: 'plain', text: '', options: [{ label: '', value: 1 }] }] };
+  t.ok(logic.pendingItems(plainBlank).length === 0, name + '无 textPending 的普通空内容不额外处理');
+  const complete = { items: [{ id: 'complete', textPending: true, text: '已填写题干', options: [{ label: '已填写', value: 1 }] }] };
+  logic.settlePending(complete);
+  t.ok(complete.items[0].textPending === undefined && logic.pendingItems(complete).length === 0, name + '正文及选项完整后仍正常清标记');
+});
+
 console.log('\n【3】q() 透传 bands / textPending');
 const bands = [{ lt: 34, score: 1 }, { lte: 50, score: 2 }, { score: 3 }];
 const n = K.q('bili', '总胆红素', 'number', null, { unit: 'μmol/L', min: 0, max: 1000, bands: bands });
@@ -60,5 +82,18 @@ const plain = dbm.insertScale({ code: 'engine-t2', title: '普通', items: [K.q(
 const got2 = dbm.getScale(plain.id || plain);
 t.ok(got2.definition.licenseTier === null && got2.definition.rater === 'self', '缺省值：licenseTier=null、rater=self', got2.definition);
 
-['', '-wal', '-shm'].forEach((s) => { if (fs.existsSync(dbPath + s)) fs.unlinkSync(dbPath + s); });
-process.exit(t.done('量表引擎扩展'));
+(async function () {
+  console.log('\n【5】未获准的中文正文不能直接发布');
+  const http = require('./helpers/http.js');
+  const srv = require(path.join(ROOT, 'server.js'));
+  const client = http.makeClient(srv);
+  await client.request('POST', '/api/register', { username: 'license_gate', password: 'test_gate_123', password2: 'test_gate_123' });
+  const scales = (await client.request('GET', '/api/scales')).json.items;
+  for (const code of ['epds', 'ndi']) {
+    const scale = scales.find(function (s) { return s.code === code; });
+    const result = await client.request('POST', '/api/surveys', { scaleId: scale.id, name: '许可校验' });
+    t.ok(result.status === 400 && /待填入授权文本/.test(result.json.error), code + '的正文待填版本被发布守卫拦截', result.json);
+  }
+  ['', '-wal', '-shm'].forEach((s) => { if (fs.existsSync(dbPath + s)) fs.unlinkSync(dbPath + s); });
+  process.exit(t.done('量表引擎扩展'));
+})().catch(function (e) { console.error(e); process.exit(1); });

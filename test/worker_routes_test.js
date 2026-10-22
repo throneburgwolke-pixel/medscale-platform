@@ -99,7 +99,7 @@ function makeAssets() {
   let cookie = '';
   async function call(method, p, body, headers) {
     const h = Object.assign({ host: 'example.com' }, headers || {});
-    if (cookie && !h.cookie) h.cookie = cookie;
+    if (cookie && !Object.hasOwn(h, 'cookie')) h.cookie = cookie;
     if (body !== undefined) h['content-type'] = 'application/json';
     const res = await worker.fetch(new Request('https://example.com' + p, {
       method: method, headers: h, body: body === undefined ? undefined : JSON.stringify(body),
@@ -241,6 +241,68 @@ function makeAssets() {
   const subW = await call('POST', '/api/join/' + shown.json.token, { answers: { q1: 2 } }, { cookie: '' });
   ok(subW.json && subW.json.result && subW.json.result.total === 2 && subW.json.scores === undefined,
     'Worker 结果字段与 Node 一致为 result（原为 scores，填写页读不到）', subW.json);
+
+  console.log('\n【10】公开提交先校验答案及知情同意，不保存无效答卷');
+  const validatedScale = await call('POST', '/api/scales', { scale: { title: '提交校验', consentOn: false,
+    definition: { items: [
+      { id: 'choice', no: 1, text: '选择', type: 'radio', options: [{ label: '否', value: 0 }, { label: '是', value: 1 }] },
+      { id: 'amount', no: 2, text: '数值', type: 'number', min: 0, max: 10 },
+      { id: 'multi', no: 3, text: '多选', type: 'checkbox', required: false, options: [{ label: 'A', value: 1 }, { label: 'B', value: 2 }] },
+    ], scoring: { method: 'sum' }, dimensions: [] } } });
+  const validatedSurvey = await call('POST', '/api/surveys', { scaleId: validatedScale.json.id, name: '公开校验', anonymous: true, showResult: true });
+  const joinPath = '/api/join/' + validatedSurvey.json.token;
+  cookie = '';
+  const publicForm = await call('GET', joinPath);
+  ok(publicForm.status === 200 && publicForm.json.survey.anonymous === true, '公开匿名填写入口仍可读取问卷', publicForm.status);
+  const invalidCases = [
+    { name: '无效选项 999', answers: { choice: 999, amount: 2, multi: [1] }, itemId: 'choice' },
+    { name: '缺失必答题', answers: { amount: 2, multi: [1] }, itemId: 'choice' },
+    { name: '未提交 answers', itemId: 'choice' },
+    { name: '低于 min', answers: { choice: 1, amount: -1, multi: [1] }, itemId: 'amount' },
+    { name: '高于 max', answers: { choice: 1, amount: 11, multi: [1] }, itemId: 'amount' },
+    { name: '重复多选', answers: { choice: 1, amount: 2, multi: [1, 1] }, itemId: 'multi' },
+    { name: '布尔数值', answers: { choice: 1, amount: false, multi: [1] }, itemId: 'amount' },
+  ];
+  for (const test of invalidCases) {
+    const before = db.prepare('SELECT COUNT(*) AS n FROM responses').get().n;
+    const response = await call('POST', joinPath, { answers: test.answers });
+    ok(response.status === 400, test.name + '返回 400', response.status);
+    ok(response.json && response.json.error && Array.isArray(response.json.details) && response.json.details.some((e) => e.itemId === test.itemId),
+      test.name + '返回 Node 同形 details', response.json);
+    ok(db.prepare('SELECT COUNT(*) AS n FROM responses').get().n === before, test.name + '不落 responses 表');
+  }
+  const valid = await call('POST', joinPath, { answers: { choice: 1, amount: '2', multi: [1, 2] } });
+  ok(valid.status === 200 && valid.json.ok === true && !!valid.json.pid, '有效答案可匿名正常提交', valid.json);
+  ok(valid.json && valid.json.result && valid.json.result.total === 6 && valid.json.scores === undefined, '有效提交保留 result 字段与正确总分', valid.json);
+  ok(db.prepare('SELECT COUNT(*) AS n FROM responses WHERE survey_id = ?').get(validatedSurvey.json.id).n === 1, '只保存一份有效答卷');
+
+  cookie = adminCookie;
+  const consentScale = await call('POST', '/api/scales', { scale: { title: '须知情同意', consentOn: true, consentText: '请同意参与',
+    definition: { items: [{ id: 'q', no: 1, text: '数值', type: 'number', min: 0, max: 10 }], scoring: { method: 'sum' } } } });
+  const consentSurvey = await call('POST', '/api/surveys', { scaleId: consentScale.json.id, name: '知情同意', showResult: false });
+  cookie = '';
+  for (const consent of [undefined, false, 'false', {}, []]) {
+    const before = db.prepare('SELECT COUNT(*) AS n FROM responses').get().n;
+    const response = await call('POST', '/api/join/' + consentSurvey.json.token, { answers: { q: 2 }, consent: consent });
+    ok(response.status === 400 && response.json && /知情同意/.test(response.json.error), '未同意知情说明返回 400：' + JSON.stringify(consent), response.json);
+    ok(db.prepare('SELECT COUNT(*) AS n FROM responses').get().n === before, '未同意时不落 responses 表');
+  }
+  const consented = await call('POST', '/api/join/' + consentSurvey.json.token, { answers: { q: 2 }, consent: true });
+  ok(consented.status === 200 && consented.json.ok === true && consented.json.result === undefined, '同意后可提交，showResult=false 仍不公开结果', consented.json);
+  const savedConsent = db.prepare('SELECT consent FROM responses WHERE survey_id = ?').all(consentSurvey.json.id);
+  ok(savedConsent.length === 1 && savedConsent[0].consent === 1, '仅保存已知情同意的有效答卷', savedConsent);
+
+  for (const consent of [false, 'false', {}, []]) {
+    const before = db.prepare('SELECT COUNT(*) AS n FROM responses').get().n;
+    const response = await call('POST', joinPath, { answers: { choice: 1, amount: 2 }, consent: consent });
+    ok(response.status === 200 && db.prepare('SELECT COUNT(*) AS n FROM responses').get().n === before + 1,
+      '未要求同意时仍可保存有效答案：' + JSON.stringify(consent), response.json);
+    const saved = db.prepare('SELECT consent FROM responses WHERE survey_id = ? ORDER BY id DESC LIMIT 1').get(validatedSurvey.json.id);
+    ok(saved.consent === 0, '未要求同意时非布尔true不记录为已同意：' + JSON.stringify(consent), saved);
+  }
+  const optionalTrue = await call('POST', joinPath, { answers: { choice: 1, amount: 2 }, consent: true });
+  const savedOptionalTrue = db.prepare('SELECT consent FROM responses WHERE survey_id = ? ORDER BY id DESC LIMIT 1').get(validatedSurvey.json.id);
+  ok(optionalTrue.status === 200 && savedOptionalTrue.consent === 1, '未要求同意时显式true仍记录为已同意', savedOptionalTrue);
 
   console.log('\n———————————————————————————————');
   console.log('Worker 路由测试：通过 ' + pass + ' 项，失败 ' + fail + ' 项');

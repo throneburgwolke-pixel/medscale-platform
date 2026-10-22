@@ -68,4 +68,25 @@ const oor = S.scoreResponse(M, { bili: 51.3, inr: 2, cr: 5000, dialysis: 0 });
 t.ok(oor.total === null && oor.invalid === true, '越界输入 → 无效', oor);
 t.ok(typeof S.FORMULAS.meld === 'function' && typeof S.FORMULAS['meld-na'] === 'function', '导出公式表');
 
+console.log('\n【6】Glasgow-Blatchford 黄金值（mmol/L、g/L）');
+const GBS = {
+  items: [
+    { id: 'sex', type: 'radio', options: [{ label: '女', value: 0 }, { label: '男', value: 1 }] },
+    { id: 'urea', type: 'number', min: 0, max: 60 }, { id: 'hb', type: 'number', min: 20, max: 250 },
+    { id: 'sbp', type: 'number', min: 30, max: 300 }, { id: 'pulse', type: 'number', min: 20, max: 250 },
+    ...['melena', 'syncope', 'liver', 'cardiac'].map(function (id) {
+      return { id: id, type: 'radio', options: [{ label: '否', value: 0 }, { label: '是', value: 1 }] };
+    }),
+  ], dimensions: [], scoring: { method: 'formula', formula: 'glasgow-blatchford',
+    cutoffs: [{ max: 1, label: '极低风险' }, { max: 23, label: '需要院内评估' }] },
+};
+const lowGbs = { sex: 1, urea: 6, hb: 140, sbp: 120, pulse: 80, melena: 0, syncope: 0, liver: 0, cardiac: 0 };
+t.ok(S.scoreResponse(GBS, lowGbs).total === 0, '男性尿素<6.5、Hb≥130、生命体征正常、无症状 = GBS 0');
+t.ok(S.scoreResponse(GBS, lowGbs).cut.label === '极低风险', 'GBS 0 为极低风险');
+const maxGbs = { sex: 1, urea: 30, hb: 80, sbp: 80, pulse: 120, melena: 1, syncope: 1, liver: 1, cardiac: 1 };
+t.ok(S.scoreResponse(GBS, maxGbs).total === 23, '男性各项最重 = GBS 23');
+t.ok(S.scoreResponse(GBS, { sex: 0, urea: 7, hb: 110, sbp: 105, pulse: 100, melena: 1, syncope: 0, liver: 0, cardiac: 0 }).total === 6,
+  '女性独立手算：尿素2 + Hb1 + SBP1 + 心率1 + 黑便1 = 6', S.scoreResponse(GBS, { sex: 0, urea: 7, hb: 110, sbp: 105, pulse: 100, melena: 1, syncope: 0, liver: 0, cardiac: 0 }));
+t.ok(typeof S.FORMULAS['glasgow-blatchford'] === 'function', 'GBS公式注册');
+
 process.exit(t.done('分档与公式计分'));

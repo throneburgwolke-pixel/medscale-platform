@@ -1747,9 +1747,14 @@ function blankItem(type, no) {
 async function viewBuilder(id) {
   if (id) {
     const s = await api('/scales/' + id);
+    // 请求期间用户可能已切到另一个编辑器；旧响应不能覆盖新页面或写错量表
+    const now = currentRoute();
+    if (now.name !== 'builder' || String(now.args[0]) !== String(id)) return;
     if (s.isBuiltin) {
       toast('内置模板不可直接修改，正在创建副本…');
       const created = await api('/scales', { method: 'POST', body: { fromTemplateId: s.id } });
+      const still = currentRoute();
+      if (still.name !== 'builder' || String(still.args[0]) !== String(id)) return;
       return go('/builder/' + created.id);
     }
     draft = s;
@@ -1759,7 +1764,7 @@ async function viewBuilder(id) {
     draft = newBlankScale();
     draftIsNew = true;
   }
-  renderBuilder();
+  renderBuilder(true);
 }
 
 function normalizeDraft() {
@@ -1779,9 +1784,9 @@ function normalizeDraft() {
   });
 }
 
-function renderBuilder() {
-  // 重绘前先把「基本信息」表单里的当前输入同步进草稿，避免增删题目时丢失未保存的文字
-  syncBasicFields();
+function renderBuilder(skipSync) {
+  // 同一草稿重绘前同步当前输入；首次载入另一量表时不得读取旧页面的表单。
+  if (!skipSync) syncBasicFields();
   const def = draft.definition;
   const sc = def.scoring;
   const content = '' +
@@ -1846,7 +1851,8 @@ function renderBuilder() {
             opt('sum', '各题求和（总分）', sc.method) +
             opt('mean', '各题均分', sc.method) +
             opt('none', '不计分（仅描述统计）', sc.method) +
-            (sc.method === 'custom' ? opt('custom', '专用计分规则（' + esc(sc.custom) + '）', sc.method) : '') +
+            (sc.method === 'custom' ? opt('custom', '专用计分规则（' + sc.custom + '）', sc.method) : '') +
+            (sc.method === 'formula' ? opt('formula', '具名公式（' + sc.formula + '）', sc.method) : '') +
           '</select></label>' +
           '<div class="row">' +
             '<label class="fld grow"><span>总分倍数（如 WHO-5 填 4）</span><input type="number" id="f-mult" value="' + esc(sc.multiplier || 1) + '"></label>' +
@@ -1961,8 +1967,11 @@ function itemEditor(it, i) {
     '<textarea data-f="text" aria-label="题干文字" placeholder="请输入题干">' + esc(it.text) + '</textarea>' +
     (hasOpts ? '<div class="mt8"><div class="muted small mb8">选项与分值（“分值”用于自动计分）</div>' +
       '<div data-opts>' + (it.options || []).map(function (o, j) {
+        const hasScore = o.score !== undefined;
         return '<div class="opt-row"><input type="text" class="lab" aria-label="选项文字" data-opt-label="' + j + '" value="' + esc(o.label) + '" placeholder="选项文字">' +
-          '<input type="number" class="val" step="0.5" aria-label="选项分值" data-opt-value="' + j + '" value="' + esc(o.value) + '" placeholder="分值">' +
+          (hasScore ? '<span class="small muted">编码：' + esc(o.value) + '</span>' : '') +
+          '<input type="number" class="val" step="0.5" aria-label="选项分值" data-opt-' + (hasScore ? 'score' : 'value') + '="' + j +
+            '" value="' + esc(hasScore ? (o.score === null ? '' : o.score) : o.value) + '" placeholder="分值"' + (hasScore && o.score === null ? ' disabled' : '') + '>' +
           '<button class="btn small danger" data-opt-del="' + j + '" aria-label="删除该选项">×</button></div>';
       }).join('') + '</div>' +
       '<button class="btn small" data-act="add-opt">＋ 添加选项</button></div>' : '') +
@@ -2029,7 +2038,7 @@ function bindBuilder() {
     $$('[data-f]', root).forEach(function (el) {
       el.oninput = el.onchange = function () { applyItemField(el); };
     });
-    $$('[data-opt-label],[data-opt-value]', root).forEach(function (el) {
+    $$('[data-opt-label],[data-opt-value],[data-opt-score]', root).forEach(function (el) {
       el.oninput = function () { applyOptionField(el); };
     });
     $$('[data-skip-val]', root).forEach(function (el) {
@@ -2181,6 +2190,10 @@ function applyOptionField(el) {
   const it = draft.definition.items[Number(card.dataset.idx)];
   if (el.dataset.optLabel !== undefined) it.options[Number(el.dataset.optLabel)].label = el.value;
   if (el.dataset.optValue !== undefined) it.options[Number(el.dataset.optValue)].value = el.value === '' ? 0 : Number(el.value);
+  if (el.dataset.optScore !== undefined) {
+    const option = it.options[Number(el.dataset.optScore)];
+    if (option.score !== null) option.score = el.value === '' ? 0 : Number(el.value);
+  }
 }
 
 /** 跳题规则字段变更 */

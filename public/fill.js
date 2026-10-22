@@ -461,11 +461,23 @@ async function submitFill() {
     return;
   }
   if (st.isPreview) {
-    const scores = await api('/preview-score', {
-      method: 'POST',
-      body: { definition: st.data.scale.definition, answers: st.answers },
-    }).catch(function () { return null; });
-    return showThanks(null, scores, true);
+    if (st.submitting) return;
+    const button = $('#f-submit');
+    st.submitting = true;
+    if (button) button.disabled = true;
+    try {
+      const scores = await api('/preview-score', {
+        method: 'POST',
+        body: { definition: st.data.scale.definition, answers: st.answers },
+      });
+      return showThanks(st.data, scores, true);
+    } catch (e) {
+      toast(e.message, 'err');
+    } finally {
+      st.submitting = false;
+      if (button) button.disabled = false;
+    }
+    return;
   }
   const payload = {
     answers: st.answers,
