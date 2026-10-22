@@ -8,7 +8,7 @@
 import { createD1Backend } from './lib/db-d1.js';
 import qr from './lib/qr.js';
 import { scoreResponse, validateAnswers } from './lib/scoring.js';
-import { computeVisibility, answerLabel } from './lib/logic.js';
+import { computeVisibility, answerLabel, pendingItems } from './lib/logic.js';
 import { buildReport } from './lib/report.js';
 import { buildFollowup } from './lib/followup.js';
 import { parseFileEdge } from './lib/parse-edge.js';
@@ -373,7 +373,12 @@ async function api(method, path, url, request, env) {
     if (!v) return json(401, { error: '请先登录' });
     const body = await readJson(request);
     if (!body.scaleId) return json(400, { error: '缺少 scaleId' });
-    const created = await dbm.createSurvey(Number(body.scaleId), { name: body.name, anonymous: body.anonymous,
+    const scale = await dbm.getScale(Number(body.scaleId));
+    if (!scale) return json(404, { error: '量表不存在' });
+    if (!canView(scale, v)) return json(403, { error: '无权使用该量表' });
+    const pend = pendingError(scale);
+    if (pend) return json(400, { error: pend });
+    const created = await dbm.createSurvey(scale.id, { name: body.name || scale.title, anonymous: body.anonymous,
       maxResponses: body.maxResponses, closesAt: body.closesAt, showResult: body.showResult, collectMeta: body.collectMeta,
       note: body.note, ownerId: v.id });
     return json(200, created);
@@ -415,7 +420,22 @@ async function api(method, path, url, request, env) {
     const r = await dbm.saveResponse(survey, scale, { answers: b.answers, pid: b.pid, durationSec: b.durationSec,
       consent: b.consent, meta: { ip: survey.collectMeta ? ip : '', ua: survey.collectMeta ? (request.headers.get('user-agent') || '') : '' },
       startedAt: b.startedAt, subjectId: b.subjectId });
-    return json(200, { ok: true, pid: r.pid, scores: r.scores, subjectId: r.subjectId });
+    // 字段名与 Node 版保持一致：填写页读 result，Worker 原先返回 scores，线上「显示结果」一直没生效
+    const payload = { ok: true, pid: r.pid, subjectId: r.subjectId };
+    if ((survey.showResult || (scale.definition && scale.definition.rater === 'clinician')) && r.scores) {
+      payload.result = {
+        total: r.scores.total,
+        cut: r.scores.cut,
+        dimensions: r.scores.dimensions,
+        flags: r.scores.flags,
+        completeness: r.scores.completeness,
+        expected: r.scores.expected,
+        answered: r.scores.answered,
+        skipped: r.scores.skipped || [],
+        ended: !!r.scores.ended,
+      };
+    }
+    return json(200, payload);
   }
 
   /* 统计报告（对齐 server.js /api/surveys/:id/report） */
@@ -556,6 +576,8 @@ async function api(method, path, url, request, env) {
     const scale = await dbm.getScale(Number(body.scaleId));
     if (!scale) return json(404, { error: '量表不存在' });
     if (!canView(scale, v)) return json(403, { error: '无权使用该量表' });
+    const pend = pendingError(scale);
+    if (pend) return json(400, { error: pend });
     const waves = (body.waves || []).filter(function (w) { return w && w.label; });
     if (!waves.length) return json(400, { error: '请至少设置一个随访时点' });
     const r = await dbm.createStudy(scale.id, {
@@ -798,6 +820,12 @@ function canView(item, v) {
   if (item.isTemplate || item.isBuiltin) return true;
   if (!item.ownerId) return false;
   return !!(v && item.ownerId === v.id);
+}
+
+/** 量表里还有占位题干/选项时不能发布：把受试者发给一张空题卷是最糟的失败方式 */
+function pendingError(scale) {
+  const n = pendingItems(scale.definition).length;
+  return n ? '还有 ' + n + ' 道题待填入授权文本，请先复制为「我的量表」并在编辑器中填写后再发布' : null;
 }
 function canEdit(item, v) {
   if (!item || !v) return false;

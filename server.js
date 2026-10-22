@@ -14,7 +14,7 @@ const dbm = require('./lib/db.js');
 const { validateAnswers, rawValue } = require('./lib/scoring.js');
 const { buildReport } = require('./lib/report.js');
 const { buildFollowup } = require('./lib/followup.js');
-const { computeVisibility, answerLabel } = require('./lib/logic.js');
+const { computeVisibility, answerLabel, pendingItems } = require('./lib/logic.js');
 const importer = require('./lib/parse.js');
 const qr = require('./lib/qr.js');
 const { LICENSED_NOTES, CATALOG, CATEGORIES } = require('./lib/scales.js');
@@ -275,6 +275,12 @@ function canEdit(item, v) {
 
 function visibleFor(list, v) {
   return list.filter(function (item) { return canView(item, v); });
+}
+
+/** 量表里还有占位题干/选项时不能发布：把受试者发给一张空题卷是最糟的失败方式 */
+function pendingError(scale) {
+  const n = pendingItems(scale.definition).length;
+  return n ? '还有 ' + n + ' 道题待填入授权文本，请先复制为「我的量表」并在编辑器中填写后再发布' : null;
 }
 
 /** 请求来源地址。未开启代理信任时忽略可伪造的 X-Forwarded-For。 */
@@ -894,6 +900,8 @@ route('POST', '/api/surveys', async function (ctx) {
   const scale = dbm.getScale(Number(body.scaleId));
   if (!scale) return sendJson(ctx.res, 404, { error: '量表不存在' });
   if (!canView(scale, v)) return sendJson(ctx.res, 403, { error: '无权使用该量表' });
+  const pend = pendingError(scale);
+  if (pend) return sendJson(ctx.res, 400, { error: pend });
   const s = dbm.createSurvey(scale.id, {
     name: body.name || scale.title,
     anonymous: body.anonymous !== false,
@@ -1219,7 +1227,7 @@ route('POST', '/api/join/:token', async function (ctx) {
 
   const payload = { ok: true, pid: saved.pid, submittedAt: new Date().toISOString() };
   if (subjectId) payload.subjectId = subjectId;
-  if (s.showResult && saved.scores) {
+  if ((s.showResult || (scale.definition && scale.definition.rater === 'clinician')) && saved.scores) {
     payload.result = {
       total: saved.scores.total,
       cut: saved.scores.cut,
@@ -1248,6 +1256,8 @@ route('POST', '/api/studies', async function (ctx) {
   const scale = dbm.getScale(Number(body.scaleId));
   if (!scale) return sendJson(ctx.res, 404, { error: '量表不存在' });
   if (!canView(scale, v)) return sendJson(ctx.res, 403, { error: '无权使用该量表' });
+  const pend = pendingError(scale);
+  if (pend) return sendJson(ctx.res, 400, { error: pend });
   const waves = (body.waves || []).filter(function (w) { return w && w.label; });
   if (!waves.length) return sendJson(ctx.res, 400, { error: '请至少设置一个随访时点' });
   const r = dbm.createStudy(scale.id, {

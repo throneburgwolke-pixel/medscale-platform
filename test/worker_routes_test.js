@@ -84,10 +84,10 @@ function makeAssets() {
   /* lib/logic.js 是 IIFE + module.exports 赋值，Node 无法静态识别其具名导出（Workers 的 esbuild 可以）。
      仅测试时把该行改写成默认导入再解构，不改动生产代码。 */
   const src = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8');
-  const IMPORT = "import { computeVisibility, answerLabel } from './lib/logic.js';";
+  const IMPORT = "import { computeVisibility, answerLabel, pendingItems } from './lib/logic.js';";
   if (src.indexOf(IMPORT) < 0) throw new Error('worker.js 的 logic.js 导入行已变化，请更新测试中的互操作补丁');
   const tmp = path.join(ROOT, '.worker_under_test.mjs');
-  fs.writeFileSync(tmp, src.replace(IMPORT, "import __logic from './lib/logic.js';\nconst { computeVisibility, answerLabel } = __logic;"));
+  fs.writeFileSync(tmp, src.replace(IMPORT, "import __logic from './lib/logic.js';\nconst { computeVisibility, answerLabel, pendingItems } = __logic;"));
   let worker;
   try {
     worker = (await import(pathToFileURL(tmp).href)).default;
@@ -225,6 +225,22 @@ function makeAssets() {
   const uploadKeys = db.prepare("SELECT key FROM rate_limits WHERE key LIKE 'upload%'").all().map((r) => r.key);
   ok(uploadKeys.includes('upload|198.51.100.6'), 'upload 限流按来源 IP 分桶', uploadKeys);
   ok(!uploadKeys.includes('upload'), '不再使用全站共用的 upload 桶', uploadKeys);
+
+  console.log('\n【9】发布守卫与结果字段');
+  cookie = adminCookie;
+  const K = require(path.join(ROOT, 'lib', 'scale-kit.js'));
+  const pendScale = await call('POST', '/api/scales', { scale: { title: '待填W', category: '情绪与心理',
+    definition: { items: K.numbered([K.pendingQ('w1', 1, [0, 1])]), dimensions: [{ id: 'total', name: '总分', items: ['w1'] }], scoring: { method: 'sum' } } } });
+  const wsv = await call('POST', '/api/surveys', { scaleId: pendScale.json.id, name: 'x' });
+  ok(wsv.status === 400 && /待填入授权文本/.test(wsv.json.error), 'Worker /api/surveys 拦截待填量表', wsv.json);
+  const wst = await call('POST', '/api/studies', { scaleId: pendScale.json.id, name: 'y', waves: [{ label: '基线' }] });
+  ok(wst.status === 400 && /待填入授权文本/.test(wst.json.error), 'Worker /api/studies 拦截待填量表', wst.json);
+  const ghost = await call('POST', '/api/surveys', { scaleId: 999999, name: 'x' });
+  ok(ghost.status === 404, 'Worker /api/surveys 对不存在的量表返回 404（原先会建出孤儿调查）', ghost.status);
+  const shown = await call('POST', '/api/surveys', { scaleId: mid, name: '显示结果', showResult: true });
+  const subW = await call('POST', '/api/join/' + shown.json.token, { answers: { q1: 2 } }, { cookie: '' });
+  ok(subW.json && subW.json.result && subW.json.result.total === 2 && subW.json.scores === undefined,
+    'Worker 结果字段与 Node 一致为 result（原为 scores，填写页读不到）', subW.json);
 
   console.log('\n———————————————————————————————');
   console.log('Worker 路由测试：通过 ' + pass + ' 项，失败 ' + fail + ' 项');
