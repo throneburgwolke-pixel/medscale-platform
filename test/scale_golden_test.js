@@ -129,6 +129,14 @@ const CASES = [
   { code: 'sofa', answers: function () {
       return { resp: 0, coag: 0, liver: 0, cardio: 0, cns: 2, renal: 0 };
     }, total: 2, cut: null, note: 'Sepsis-3：需与基线比较增加≥2；平台缺少基线，不能按绝对分判器官功能障碍' },
+  { code: 'hachinski', answers: function (s) {
+      const a = {};
+      s.items.forEach(function (it) { a[it.id] = it.options[it.options.length - 1].value; });
+      return a;
+    }, total: 18, cut: '支持血管性痴呆',
+    note: 'Hachinski 1975：13项，5个2分项与8个1分项，满分18' },
+  { code: 'hachinski', answers: function (s) { return allAs(s, 0); }, total: 0, cut: '倾向变性性痴呆',
+    note: 'Hachinski 1975：全部阴性0分，≤4倾向原发性变性痴呆' },
   { code: 'geneva-revised', answers: function () {
       return { age65: 1, prior: 3, surgery: 2, cancer: 2, legpain: 3, hemoptysis: 2, hr: 5, edema: 4 };
     }, total: 22, cut: '高度可能', note: 'Le Gal 2006：8项均阳性且心率≥95，合计22' },
