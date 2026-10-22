@@ -242,9 +242,9 @@ if (!dom.available()) {
   t.ok(/免费/.test(tagText(phq)), 'PHQ-9 标为免费使用', tagText(phq));
   t.ok(/Pfizer/.test(tagTitle(phq)), '标签悬停可看完整授权说明', tagTitle(phq));
   const mmas = licCards.find(function (c) { return /MMAS-8/.test(c.textContent); });
-  t.ok(/需申请|需授权/.test(tagText(mmas)), 'MMAS-8 标为需申请授权', tagText(mmas));
+  t.ok(/需申请|需授权|商业授权/.test(tagText(mmas)), 'MMAS-8 标出需要授权/正文待填', tagText(mmas));
   const mmasTag = mmas && mmas.querySelector('.lic-tag');
-  t.ok(!!mmasTag && mmasTag.classList.contains('warn'), '需授权的用警示色', mmasTag && mmasTag.className);
+  t.ok(!!mmasTag && /warn|pending/.test(mmasTag.className), '需授权的用警示色', mmasTag && mmasTag.className);
   const src = licCards.find(function (c) { return /PSQI/.test(c.textContent); });
   t.ok(!!src, '量表库含 PSQI');
   if (src) {
