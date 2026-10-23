@@ -54,6 +54,33 @@ const CASES = [
     }, total: 0, cut: '活动量偏低（<600 MET-min/周）', note: '只久坐不活动 → 0 MET-min/周' },
   { code: 'quickdash', answers: function (s) { return allAs(s, 1); }, total: 0,
     note: 'QuickDASH 用户手册：均分 1 → [(1-1)/4]×100 = 0' },
+  { code: 'berg', answers: function (s) { return allAs(s, 4); }, total: 56, cut: '跌倒风险低（41-56）',
+    note: 'Berg 计分表：14 项各 4 分 = 56，属低风险区间' },
+  { code: 'berg', answers: function (s) { return allAs(s, 0); }, total: 0, cut: '跌倒风险高（0-20）',
+    note: 'Berg 计分表：全部 0 分 = 0，跌倒风险高' },
+  { code: 'berg', answers: function (s) {
+      const a = {}; s.items.forEach(function (it, i) { a[it.id] = i < 10 ? 4 : (i === 10 ? 1 : 0); }); return a;
+    }, total: 41, cut: '跌倒风险低（41-56）', note: '40 分是「中等」与「低」的边界：41 分才进入 41-56 档' },
+  { code: 'berg', answers: function (s) {
+      const a = {}; s.items.forEach(function (it, i) { a[it.id] = i < 10 ? 4 : 0; }); return a;
+    }, total: 40, cut: '跌倒风险中等（21-40）', note: '40 分仍落在 21-40 档，不误判为低风险' },
+  { code: 'apgar', answers: function (s) { return allAs(s, 2); }, total: 20,
+    note: 'Apgar：两个时点各 5 项满分 = 各 10 分，合计 20（总分不用于判读）' },
+  { code: 'apgar', answers: function (s) {
+      const a = {}; s.items.forEach(function (it) { a[it.id] = it.id.indexOf('t1_') === 0 ? 2 : 0; }); return a;
+    }, total: 10, note: '1 分钟 10 分、5 分钟 0 分 → 合计 10，分量表各自可读' },
+  { code: 'centor', answers: function (s) { return allAs(s, 1); }, total: 5, cut: '可能性较高（≥4 分）',
+    note: 'McIsaac：4 项体征全阳性 + 3-14 岁（+1）= 5 分' },
+  { code: 'centor', answers: function (s) {
+      const a = {}; s.items.forEach(function (it) { a[it.id] = 0; }); a.c5 = -1; return a;
+    }, total: -1, cut: '链球菌可能性低（≤0）', note: 'McIsaac：≥45 岁且全部阴性 = −1 分，负分不会被压成 0' },
+  { code: 'alvarado', answers: function () {
+      return { al1: 1, al2: 1, al3: 1, al4: 2, al5: 0, al6: 1, al7: 2, al8: 1 };
+    }, total: 9, cut: '极可能（9-10）', note: 'Alvarado：除反跳痛外全部阳性 = 1+1+1+2+0+1+2+1 = 9' },
+  { code: 'alvarado', answers: function (s) { return allAs(s, 0); }, total: 0, cut: '阑尾炎可能性低（≤4）',
+    note: 'Alvarado：全部阴性 = 0 分' },
+  { code: 'hads', answers: function (s) { return allAs(s, 3); }, total: 42,
+    note: 'HADS：14 项满分 42，焦虑/抑郁分量表各 21' },
   { code: 'quickdash', answers: function (s) { return allAs(s, 5); }, total: 100,
     note: 'QuickDASH 用户手册：均分 5 → [(5-1)/4]×100 = 100' },
   { code: 'phq-9', answers: function (s) { return allAs(s, 2); }, total: 18, cut: '中重度抑郁',
@@ -236,7 +263,30 @@ t.ok(JSON.stringify(wexnerDuration) === JSON.stringify(['<1年', '1–<5年', '5
 t.ok(!(T('sofa').scoring.cutoffs || []).length, 'SOFA不按绝对总分作临床分级');
 
 /* ---------- 本轮新增：不适用折算与维度分 ---------- */
+const rApgar = scoreResponse(T('apgar'), (function () {
+  const a = {};
+  T('apgar').items.forEach(function (it) { a[it.id] = it.id.indexOf('t1_') === 0 ? 2 : 1; });
+  return a;
+})());
+t.ok(rApgar.dimensions.apgar1.score === 10 && rApgar.dimensions.apgar5.score === 5,
+  'Apgar 按 1 分钟 / 5 分钟分别给分量表分，不混成一个分数', rApgar.dimensions);
+
+const bergTpl = T('berg');
+t.ok(bergTpl.items.length === 14 && bergTpl.items.every(function (it) { return it.options.length === 5; }),
+  'Berg 为 14 项、每项 0-4 五档');
+t.ok(bergTpl.items.some(function (it) { return /25 cm/.test(it.text + (it.options || []).map(function (o) { return o.label; }).join('')); }),
+  'Berg 前伸项保留 25 cm 的原始量化锚点');
+
+const rAlv = scoreResponse(T('alvarado'), { al1: 1, al2: 1, al3: 1, al4: 2, al5: 1, al6: 1, al7: 2, al8: 1 });
+t.ok(rAlv.total === 10 && rAlv.dimensions.symptom.score === 3 && rAlv.dimensions.sign.score === 4 && rAlv.dimensions.lab.score === 3,
+  'Alvarado 满分 10，症状 3 / 体征 4 / 化验 3', rAlv);
+
+const rHads = scoreResponse(T('hads'), allAs(T('hads'), 3));
+t.ok(rHads.dimensions.anxiety.score === 21 && rHads.dimensions.depression.score === 21,
+  'HADS 奇偶题分为焦虑/抑郁两个 0-21 分量表', rHads.dimensions);
+
 const odi = T('odi');
+
 const odiMax = {}; odi.items.forEach(function (it) { odiMax[it.id] = 5; });
 t.ok(scoreResponse(odi, odiMax).total === 100, 'ODI 十项满分 = 100%', scoreResponse(odi, odiMax));
 const odiNa = Object.assign({}, odiMax, { odi1: 'na', odi2: 'na' });

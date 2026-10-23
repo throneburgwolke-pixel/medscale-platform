@@ -118,7 +118,7 @@ lib/
   scales-neuro.js  神经、老年与康复（SPPB、NDI、NIHSS、Hachinski、ODI/WOMAC/QuickDASH 结构模板）
   scales-qol.js    生活质量、肿瘤与营养（ECOG、KPS、MEDAS、IPAQ 短卷）
   scales-risk.js   临床风险评分（分档与公式计分）
-  scales-screen.js 筛查与分级工具（STOP-BANG、MST、ASA 分级、PERC、FLACC）
+  scales-screen.js 筛查与分级工具（STOP-BANG、MST、ASA、PERC、FLACC、Apgar、Centor、Alvarado）
   db.js            node:sqlite 建表、迁移、设置与备份
   scales*.js       内置量表模板（按科室分文件）
   scoring.js       答案校验与计分
