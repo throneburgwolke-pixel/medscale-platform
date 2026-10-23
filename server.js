@@ -418,6 +418,7 @@ route('GET', '/api/session', function (ctx) {
     registerMode: registerMode(),
     registerAvailable: registerAvailable(),
     siteTitle: dbm.getSetting('site_title', '医学量表与问卷平台'),
+    deployment: 'local',
   };
   // 口令状态只对管理员可见：未登录者不应被告知"默认密码仍在生效"
   if (admin) body.defaultPassword = dbm.isAdminPasswordDefault();

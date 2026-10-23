@@ -256,6 +256,15 @@ function bindHotCards() {
 }
 
 /** 估算作答用时（分钟）：按每题 12 秒粗估 */
+/** 当前部署形态：local（本机/自托管 SQLite）或 cloudflare（边缘 D1）。影响「数据存哪」类提示文案 */
+function isCloud() { return !!(state.session && state.session.deployment === 'cloudflare'); }
+/** 数据存储位置的一句话描述（按部署形态） */
+function storageDesc() {
+  return isCloud()
+    ? '数据保存在你的 Cloudflare D1 私有数据库（仅你的账号可访问，平台方无法查看内容）'
+    : '数据仅保存在本机';
+}
+
 /* ================= 路由 ================= */
 function currentRoute() {
   if (location.pathname.indexOf('/s/') === 0) {
@@ -686,7 +695,7 @@ function viewLanding() {
       '<section class="section">' +
         '<div class="section-inner center">' +
           '<h2>现在就把下一项研究跑起来</h2>' +
-          '<div class="sub">数据保存在你自己的服务器或电脑上，不经过任何第三方</div>' +
+          '<div class="sub">' + (isCloud() ? '数据保存在你的 Cloudflare 私有数据库，不经其他第三方转手' : '数据保存在你自己的服务器或电脑上，不经过任何第三方') + '</div>' +
           '<div class="row" style="justify-content:center;gap:12px">' +
             // 主动作已在顶栏与首屏，收尾区只做导览；量表库入口统一收敛到顶栏导航
             '<a class="btn" href="#/guide">看使用流程</a>' +
@@ -697,7 +706,7 @@ function viewLanding() {
       '<footer class="landing-foot">' +
         '<div class="foot-col">' +
           '<div class="foot-brand">医学量表与问卷平台</div>' +
-          '<div class="small muted">本地部署 · 数据保存在自己的服务器或电脑上</div>' +
+          '<div class="small muted">' + (isCloud() ? '云端部署 · 数据保存在你的 Cloudflare D1 私有库' : '本地部署 · 数据保存在自己的服务器或电脑上') + '</div>' +
         '</div>' +
         '<div class="foot-col">' +
           '<div class="foot-h">快捷入口</div>' +
@@ -813,7 +822,9 @@ const GUIDE_SECTIONS = [
   { t: '快速开始', ico: '🚀', items: [
     ['如何开始使用？', '注册账号后进入工作台。首次使用建议从「量表库」选择现成量表，或到「导入量表」上传自己的量表文件。'],
     ['支持哪些量表？', '内置常用医学量表（情绪与心理、睡眠、护理评估、营养、呼吸心血管、消化泌尿、成瘾行为等方向），另有量表目录收录需要授权或培训的量表，标明授权与获取途径。'],
-    ['数据保存在哪里？', '全部数据保存在你部署的这台机器的数据库文件中（medscale/data/app.db），不经过任何第三方服务器。'],
+    ['数据保存在哪里？', isCloud()
+      ? '全部数据保存在你账号下的 Cloudflare D1 私有数据库（边缘 SQLite），仅本部署可访问；可随时在 Cloudflare 控制台导出全库快照。'
+      : '全部数据保存在你部署的这台机器的数据库文件中（medscale/data/app.db），不经过任何第三方服务器。'],
   ] },
   { t: '选题与导入', ico: '📚', items: [
     ['怎么把纸质量表变成电子问卷？', '用「导入量表」上传 Excel/Word/PDF 或图片文件。Excel 建议直接下载模板填写，识别最准；Word/PDF 会自动识别题干与选项。图片走服务器本机 OCR，目前仅 macOS 服务器支持，其它系统请改用模板或对照原图手工录入。识别后进入校对页逐题确认即可入库。'],
@@ -931,7 +942,7 @@ function viewAuth(mode) {
             '<div class="row"><label class="fld grow"><span>姓名（选填）</span><input type="text" id="r-name" placeholder="如 张医生"></label>' +
             '<label class="fld grow"><span>科室 / 单位（选填）</span><input type="text" id="r-org" placeholder="如 心内科"></label></div>' +
             '<button class="btn primary block" id="btn-register">注册并开始使用</button>' +
-            '<div class="banner info mt16 mb0 small">注册后即可创建量表与调查。数据保存在本机服务器，请按机构要求做好伦理与隐私合规。</div>'
+            '<div class="banner info mt16 mb0 small">注册后即可创建量表与调查。' + storageDesc() + '，请按机构要求做好伦理与隐私合规。</div>'
           : '<label class="fld"><span>用户名</span><input type="text" id="l-user" placeholder="请输入用户名" autocomplete="username"></label>' +
             '<label class="fld"><span>密码</span><input type="password" id="l-pwd" placeholder="请输入密码" autocomplete="current-password"></label>' +
             '<button class="btn primary block" id="btn-login">登录</button>')) +
@@ -1026,7 +1037,7 @@ async function viewHome() {
   const content = '' +
     '<div class="page-head">' +
       '<div><h1 class="page-title">工作台</h1>' +
-      '<div class="page-sub">' + tplCount + ' 个内置量表模板 · 量表目录 ' + ov.catalogCount + ' 条 · 数据仅保存在本机</div></div>' +
+      '<div class="page-sub">' + tplCount + ' 个内置量表模板 · 量表目录 ' + ov.catalogCount + ' 条 · ' + storageDesc() + '</div></div>' +
       '<div class="row">' +
         '<button class="btn" id="btn-new-blank">＋ 自制问卷</button>' +
         '<button class="btn primary" id="btn-goto-library">从量表库选择</button>' +
@@ -2930,8 +2941,10 @@ async function viewSurveyDetail(id) {
       '<div class="row"><button class="btn primary" id="set-save">保存设置</button>' +
       '<button class="btn danger" id="set-del">删除该调查及其数据</button></div></div>' +
       '<div class="card" style="max-width:640px"><div class="card-title">数据安全提示</div>' +
-      '<div class="small muted">数据保存在本机 SQLite 数据库文件中：<span class="mono">medscale/data/app.db</span>。' +
-      '建议：① 定期备份该文件；② 涉及患者隐私的研究应关闭 IP 采集并使用匿名模式；③ 正式发表前请完成伦理审批并保留知情同意记录。</div></div>';
+      '<div class="small muted">' + (isCloud()
+        ? '数据保存在 Cloudflare D1 边缘数据库。建议：① 定期在 Cloudflare 控制台导出 D1 快照；'
+        : '数据保存在本机 SQLite 数据库文件中：<span class="mono">medscale/data/app.db</span>。建议：① 定期备份该文件；') +
+      '② 涉及患者隐私的研究应关闭 IP 采集并使用匿名模式；③ 正式发表前请完成伦理审批并保留知情同意记录。</div></div>';
   }
 
   $('#app').innerHTML = shell('surveys', head + tabBar +
@@ -3374,7 +3387,11 @@ function initBackupPanel() {
           '<td class="num">' + fmtBytes(b.bytes) + '</td>' +
           '<td class="mono small">' + esc((b.sha256 || '').slice(0, 12)) + '</td>' +
           '<td class="acts"><a class="btn small" href="/api/backups/' + encodeURIComponent(b.name) + '">下载</a></td></tr>';
-      }).join('') : '<tr><td colspan="5"><div class="empty" style="padding:28px var(--space-5)"><p>还没有备份。点上方「立即生成备份」会生成一个独立的 SQLite 文件，可下载到别处留存；删除调查前留一份快照最稳妥。</p></div></td></tr>';
+      }).join('') : '<tr><td colspan="5"><div class="empty" style="padding:28px var(--space-5)"><p>' +
+        (isCloud()
+          ? '云端部署不在应用内生成快照。请到 Cloudflare 控制台 → Workers &amp; Pages → D1 数据库 → Export 导出全库副本，建议每周留存一份。'
+          : '还没有备份。点上方「立即生成备份」会生成一个独立的 SQLite 文件，可下载到别处留存；删除调查前留一份快照最稳妥。') +
+        '</p></div></td></tr>';
     } catch (e) {
       list.innerHTML = '<tr><td colspan="5" class="small">备份列表读取失败：' + esc(e.message) + '</td></tr>';
     }
@@ -3467,15 +3484,18 @@ async function viewSettings() {
         '</div>' : '') +
       '<div class="card"><div class="card-title">数据存储与合规提示</div>' +
         '<ul class="small" style="padding-left:18px;color:var(--ink-2);line-height:1.85">' +
-          '<li>所有数据保存在本机文件 <span class="mono">medscale/data/app.db</span>（SQLite），未上传到任何第三方服务器。</li>' +
-          '<li>可用下方「数据备份与恢复」一键生成快照；删除调查时对应答卷会一并删除且不可恢复。</li>' +
+          (isCloud()
+            ? '<li>所有数据保存在你的 Cloudflare D1 私有数据库（边缘 SQLite），仅本部署账号可访问；建议定期在 Cloudflare 控制台导出快照。</li>'
+            : '<li>所有数据保存在本机文件 <span class="mono">medscale/data/app.db</span>（SQLite），未上传到任何第三方服务器。</li>') +
+          '<li>可用下方「数据备份与恢复」' + (isCloud() ? '查看备份指引（云端请在控制台导出）' : '一键生成快照') + '；删除调查时对应答卷会一并删除且不可恢复。</li>' +
           '<li>开展涉及患者的研究前，请完成<b>伦理审查</b>与<b>知情同意</b>；本平台支持在问卷前强制显示知情同意并留痕。</li>' +
           '<li>涉及个人健康信息时建议：启用匿名模式、关闭 IP 采集、使用院内网络或内网服务器部署，并按《个人信息保护法》最小化采集。</li>' +
           '<li>如需公网发放，请为服务器配置 HTTPS（Nginx/Caddy 反向代理），并设置访问日志与定期备份。</li>' +
         '</ul>' +
       '</div>' +
     '</div>' +
-    ((session.isAdmin) ? '<div class="card mt16"><div class="card-title">数据备份与恢复<span class="hint">快照是独立的 SQLite 文件，可下载到别处留存</span></div>' +
+    ((session.isAdmin) ? '<div class="card mt16"><div class="card-title">数据备份与恢复<span class="hint">' +
+      (isCloud() ? '云端部署：请到 Cloudflare 控制台导出 D1 快照' : '快照是独立的 SQLite 文件，可下载到别处留存') + '</span></div>' +
       '<div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">' +
         '<button class="btn primary" id="btn-backup">立即生成备份</button>' +
         '<span class="small muted">快照保存在服务器 <span class="mono" id="backup-dir">backups/</span></span>' +
@@ -3501,12 +3521,19 @@ async function viewSettings() {
       '<div class="banner info mt16 mb0">平台内置量表均标注了来源文献与授权说明；发表论文时请按各量表要求引用原始文献与中文版文献。</div>' +
     '</div>' +
     '<div class="card mt16"><div class="card-title">部署建议</div>' +
-      '<div class="grid cols-2">' +
-        '<div><b class="small">本机 / 局域网使用（推荐起步）</b>' +
-          '<div class="small muted mt8">服务默认只监听 127.0.0.1（仅本机可访问）。需要手机扫码填写时，用「启动平台.command」启动或以 <span class="mono">MEDSCALE_LAN=1</span> 启动，命令行会显示局域网地址（如 http://192.168.1.5:5173），受试者连接同一 WiFi 即可填写，数据不出内网。</div></div>' +
-        '<div><b class="small">公网服务器部署</b>' +
-          '<div class="small muted mt8">部署到云服务器后，用域名 + HTTPS 对外发放。建议配置防火墙与自动备份 app.db，并按机构要求完成数据安全评估。</div></div>' +
-      '</div>' +
+      (isCloud()
+        ? '<div class="grid cols-2">' +
+          '<div><b class="small">当前部署：Cloudflare Workers + D1</b>' +
+            '<div class="small muted mt8">平台运行在 Cloudflare 边缘节点，数据存于你的 D1 私有库。无需自行维护服务器；建议定期在 Cloudflare 控制台导出 D1 快照留存。</div></div>' +
+          '<div><b class="small">绑定自有域名（可选）</b>' +
+            '<div class="small muted mt8">如需使用正式域名，可在 Cloudflare 控制台 → Workers → 本项目 → Settings → Domains 中绑定，HTTPS 自动生效。</div></div>' +
+          '</div>'
+        : '<div class="grid cols-2">' +
+          '<div><b class="small">本机 / 局域网使用（推荐起步）</b>' +
+            '<div class="small muted mt8">服务默认只监听 127.0.0.1（仅本机可访问）。需要手机扫码填写时，用「启动平台.command」启动或以 <span class="mono">MEDSCALE_LAN=1</span> 启动，命令行会显示局域网地址（如 http://192.168.1.5:5173），受试者连接同一 WiFi 即可填写，数据不出内网。</div></div>' +
+          '<div><b class="small">公网服务器部署</b>' +
+            '<div class="small muted mt8">部署到云服务器后，用域名 + HTTPS 对外发放。建议配置防火墙与自动备份 app.db，并按机构要求完成数据安全评估。</div></div>' +
+          '</div>') +
     '</div>';
   $('#app').innerHTML = shell('settings', content, [{ label: '系统设置' }]);
   afterShell();
@@ -3576,6 +3603,19 @@ function safeColor(c, fallback) {
   return s;
 }
 
+/** 读运行时 CSS 变量的解析值：Canvas 不认 var()，深色模式下硬编码色会不可读，统一从这里取 */
+function cssColor(name, fallback) {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch (e) { return fallback; }
+}
+function chartInk() { return cssColor('--ink', '#16323b'); }
+function chartInk2() { return cssColor('--ink-2', '#4b6470'); }
+function chartInk3() { return cssColor('--ink-3', '#8399a4'); }
+function chartGrid() { return cssColor('--line', '#e2ecf0'); }
+function chartDanger() { return cssColor('--danger', '#dc2626'); }
+
 /** 图表绘制容错：任何绘制异常都不应影响页面其余部分 */
 function safeDraw(fn) {
   try { return fn(); } catch (e) {
@@ -3615,8 +3655,8 @@ function drawBars(cv, labels, values, color, errors) {
   const step = plotW / n;
   const barW = Math.min(58, step * 0.62);
 
-  ctx.strokeStyle = '#e2ecf0';
-  ctx.fillStyle = '#8399a4';
+  ctx.strokeStyle = chartGrid();
+  ctx.fillStyle = chartInk3();
   ctx.font = '11px sans-serif';
   for (let i = 0; i <= 4; i += 1) {
     const y = padT + plotH - plotH * i / 4;
@@ -3638,7 +3678,7 @@ function drawBars(cv, labels, values, color, errors) {
     ctx.fillRect(x, y, barW, hgt);
     if (errors && errors[i] !== undefined && errors[i] !== null && isFinite(errors[i])) {
       const eh = plotH * (errors[i] / max);
-      ctx.strokeStyle = '#334155';
+      ctx.strokeStyle = chartInk2();
       ctx.beginPath();
       ctx.moveTo(x + barW / 2, y - eh);
       ctx.lineTo(x + barW / 2, y + eh);
@@ -3648,11 +3688,11 @@ function drawBars(cv, labels, values, color, errors) {
       ctx.lineTo(x + barW / 2 + 6, y + eh);
       ctx.stroke();
     }
-    ctx.fillStyle = '#16323b';
+    ctx.fillStyle = chartInk();
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(String(Math.round(v * 100) / 100), x + barW / 2, Math.max(12, y - 6));
-    ctx.fillStyle = '#4b6470';
+    ctx.fillStyle = chartInk2();
     ctx.font = '11px sans-serif';
     const label = String(labels[i] === undefined ? '' : labels[i]);
     const short = label.length > 7 ? label.slice(0, 6) + '…' : label;
@@ -3678,8 +3718,8 @@ function drawLine(cv, labels, values, color, seriesName) {
   const xAt = function (i) { return padL + (n === 1 ? plotW / 2 : plotW * i / (n - 1)); };
   const yAt = function (v) { return padT + plotH - plotH * (v / max); };
 
-  ctx.strokeStyle = '#e2ecf0';
-  ctx.fillStyle = '#8399a4';
+  ctx.strokeStyle = chartGrid();
+  ctx.fillStyle = chartInk3();
   ctx.font = '11px sans-serif';
   for (let i = 0; i <= 4; i += 1) {
     const y = padT + plotH - plotH * i / 4;
@@ -3720,14 +3760,14 @@ function drawLine(cv, labels, values, color, seriesName) {
     ctx.fill();
     ctx.stroke();
   });
-  ctx.fillStyle = '#16323b';
+  ctx.fillStyle = chartInk();
   ctx.font = 'bold 12px sans-serif';
   ctx.textAlign = 'right';
   ctx.fillText(String(values[n - 1]), Math.min(p.w - 6, xAt(n - 1) + 26), Math.max(12, yAt(values[n - 1]) - 8));
   ctx.textAlign = 'left';
 
   const step = Math.max(1, Math.ceil(n / 8));
-  ctx.fillStyle = '#8399a4';
+  ctx.fillStyle = chartInk3();
   ctx.font = '11px sans-serif';
   ctx.textAlign = 'center';
   labels.forEach(function (lb, i) {
@@ -3768,9 +3808,9 @@ function drawHistogram(cv, values, range, meanValue, axisLabel) {
 
   for (let i = 0; i <= 4; i += 1) {
     const y = padT + plotH - plotH * i / 4;
-    ctx.strokeStyle = '#e2ecf0';
+    ctx.strokeStyle = chartGrid();
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
-    ctx.fillStyle = '#8399a4'; ctx.font = '11px sans-serif';
+    ctx.fillStyle = chartInk3(); ctx.font = '11px sans-serif';
     ctx.fillText(String(Math.round(max * i / 4)), 8, y + 4);
   }
   const labelEvery = Math.max(1, Math.ceil(bins / 10));
@@ -3781,7 +3821,7 @@ function drawHistogram(cv, values, range, meanValue, axisLabel) {
     ctx.fillStyle = 'rgba(37,99,235,.85)';
     ctx.fillRect(x, y, barW, hgt);
     if (i % labelEvery === 0) {
-      ctx.fillStyle = '#8399a4';
+      ctx.fillStyle = chartInk3();
       ctx.font = '11px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(String(Math.round((lo + width * i) * 10) / 10), x + barW / 2, padT + plotH + 16);
@@ -3790,15 +3830,16 @@ function drawHistogram(cv, values, range, meanValue, axisLabel) {
   });
   if (meanValue !== null && meanValue !== undefined && isFinite(meanValue)) {
     const mx = padL + plotW * (meanValue - lo) / span;
-    ctx.strokeStyle = 'var(--danger)';
+    /* Canvas 不解析 var(--danger)：此前赋值被静默忽略，均值线实际是灰色而非设计的警示红 */
+    ctx.strokeStyle = chartDanger();
     ctx.setLineDash([5, 4]);
     ctx.beginPath(); ctx.moveTo(mx, padT); ctx.lineTo(mx, padT + plotH); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = 'var(--danger)';
+    ctx.fillStyle = chartDanger();
     ctx.font = '11px sans-serif';
     ctx.fillText('均值 ' + Math.round(meanValue * 100) / 100, Math.min(mx + 5, p.w - 72), padT + 12);
   }
-  ctx.fillStyle = '#8399a4';
+  ctx.fillStyle = chartInk3();
   ctx.font = '11px sans-serif';
   ctx.fillText('横轴：' + (axisLabel || '得分区间') + '　纵轴：人数', padL, p.h - 8);
 }

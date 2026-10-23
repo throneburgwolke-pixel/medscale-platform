@@ -354,11 +354,14 @@ function renderQuestion(it) {
     const mn = numOr(it.min, 0);
     const mx = numOr(it.max, 10);
     const nv = Number(v);
-    const cur = (v === undefined || v === '' || !Number.isFinite(nv)) ? Math.round((mn + mx) / 2) : nv;
+    const answered = !(v === undefined || v === '' || !Number.isFinite(nv));
+    const cur = answered ? nv : Math.round((mn + mx) / 2);
     out.push('<div class="row" style="flex-wrap:nowrap"><input type="range" min="' + mn + '" max="' + mx + '" value="' + cur +
-      '" data-in="' + esc(it.id) + '"' + named + ' id="rg_' + esc(it.id) + '">' +
-      '<span class="slider-val" id="rgv_' + esc(it.id) + '">' + cur + '</span></div>' +
-      '<div class="row small muted" style="justify-content:space-between"><span>' + mn + '</span><span>' + mx + (it.unit ? ' ' + esc(it.unit) : '') + '</span></div>');
+      '" data-in="' + esc(it.id) + '"' + named + ' id="rg_' + esc(it.id) + '"' + (answered ? '' : ' aria-describedby="rgh_' + esc(it.id) + '"') + '>' +
+      '<span class="slider-val" id="rgv_' + esc(it.id) + '">' + (answered ? cur : '—') + '</span></div>' +
+      '<div class="row small muted" style="justify-content:space-between"><span>' + mn + '</span>' +
+      (answered ? '' : '<span id="rgh_' + esc(it.id) + '" style="color:var(--warn-text)">请拖动选择</span>') +
+      '<span>' + mx + (it.unit ? ' ' + esc(it.unit) : '') + '</span></div>');
   } else if (it.type === 'number') {
     const minAttr = Number.isFinite(Number(it.min)) && it.min !== undefined ? ' min="' + Number(it.min) + '"' : '';
     const maxAttr = Number.isFinite(Number(it.max)) && it.max !== undefined ? ' max="' + Number(it.max) + '"' : '';
@@ -415,10 +418,15 @@ function bindQuestions(slice) {
     } else if (it.type === 'slider') {
       const el = nodes[0];
       const out = $('#rgv_' + it.id);
-      fillState.answers[it.id] = Number(el.value);
+      /* 未触碰的滑块不计入答案：此前绑定时就把中点写进 answers，
+         受试者一题不拖也能通过必答校验，等于白收一个中点分（数据效度问题）。
+         现在仅当用户真正拖动/点按后才记录；草稿恢复的值在 answers 里，不受影响。 */
+      if (out && !hasAnswer(it)) out.textContent = '—';
       el.oninput = function () {
-        out.textContent = el.value;
+        if (out) out.textContent = el.value;
         fillState.answers[it.id] = Number(el.value);
+        const hint = $('#rgh_' + it.id);
+        if (hint) hint.remove();
         afterChange(it);
       };
     } else {

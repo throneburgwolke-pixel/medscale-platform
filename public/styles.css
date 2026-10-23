@@ -191,13 +191,15 @@ a:hover { text-decoration: underline; }
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr);
   min-height: 100vh;
+  /* 移动端 Safari 的 100vh 包含地址栏遮挡区，dvh 才是真实可视高度（不支持的浏览器回退上一行） */
+  min-height: 100dvh;
   width: 100%;
   max-width: 100%;
   overflow-x: clip;
 }
 .sidebar {
   width: 236px; background: var(--sidebar-bg); color: var(--sidebar-ink);
-  padding: 18px var(--space-3); position: sticky; top: 0; height: 100vh;
+  padding: 18px var(--space-3); position: sticky; top: 0; height: 100vh; height: 100dvh;
   display: flex; flex-direction: column; gap: 4px;
   overflow-y: auto; overflow-x: hidden;
 }
@@ -483,7 +485,10 @@ input[type=range] { width: 100%; accent-color: var(--brand); height: 26px; }
 
 .fill-bar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: color-mix(in srgb, var(--surface) 94%, transparent);
-  backdrop-filter: blur(12px); border-top: 1px solid var(--line); padding: var(--space-3) var(--space-4);
+  backdrop-filter: blur(12px); border-top: 1px solid var(--line);
+  padding: var(--space-3) var(--space-4);
+  /* iPhone Home 指示条：避免「上一节/下一节」按钮被系统手势区压住 */
+  padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
 }
 .fill-bar-inner { max-width: 760px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
 
@@ -711,7 +716,7 @@ select, input, .btn { font-size: var(--fs-14); line-height: 1.45; }
 .scale-card:hover { transform: translateY(-4px); box-shadow: 0 14px 34px color-mix(in srgb, var(--accent-color, var(--brand)) 22%, transparent); border-color: color-mix(in srgb, var(--accent-color, var(--brand)) 45%, var(--line)); }
 
 /* ================= 网站首页（Landing） ================= */
-.landing { min-height: 100vh; background: var(--bg); }
+.landing { min-height: 100vh; min-height: 100dvh; background: var(--bg); }
 .landing-nav {
   position: sticky; top: 0; z-index: 60; display: flex; align-items: center; gap: 16px;
   padding: var(--space-3) 26px; backdrop-filter: blur(14px);
@@ -864,7 +869,7 @@ select, input, .btn { font-size: var(--fs-14); line-height: 1.45; }
 
 /* 回到顶部：滚深后浮现，固定右下角 */
 #back-top {
-  position: fixed; right: 22px; bottom: 26px; z-index: 70; width: 44px; height: 44px;
+  position: fixed; right: 22px; bottom: 26px; bottom: calc(26px + env(safe-area-inset-bottom, 0px)); z-index: 70; width: 44px; height: 44px;
   border: 0; border-radius: 50%; background: linear-gradient(135deg, #10766b, #0b5a52); color: #fff; font-size: 18px; line-height: 1;
   cursor: pointer; box-shadow: 0 10px 26px rgba(9, 30, 66, .3);
   opacity: 0; transform: translateY(14px) scale(.9); pointer-events: none;
@@ -886,7 +891,7 @@ select, input, .btn { font-size: var(--fs-14); line-height: 1.45; }
 .marquee-wrap:hover .marquee { animation-play-state: paused; }
 
 /* 注册 / 登录卡片 */
-.auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 26px; background: radial-gradient(1100px 600px at 15% 0%, var(--grad-forest) 0%, var(--grad-slate) 58%, var(--grad-ink) 100%); }
+.auth-wrap { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 26px; background: radial-gradient(1100px 600px at 15% 0%, var(--grad-forest) 0%, var(--grad-slate) 58%, var(--grad-ink) 100%); }
 .auth-card { background: var(--surface); border-radius: var(--radius); padding: 30px; width: 100%; max-width: 440px; box-shadow: var(--shadow-3); animation: popIn .4s cubic-bezier(.2,.9,.3,1.2) both; }
 .auth-tabs { display: flex; gap: 6px; background: var(--surface-2); padding: var(--space-1); border-radius: var(--radius-md); margin: 18px 0 var(--space-5); }
 .auth-tabs button { flex: 1; border: 0; background: none; padding: var(--space-2); border-radius: 9px; font-size: var(--fs-14); color: var(--ink-2); cursor: pointer; font-family: inherit; transition: .2s; }
@@ -953,7 +958,7 @@ details summary:hover { color: var(--brand-600); }
 .qr-box img { width: 190px; height: 190px; image-rendering: pixelated; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; padding: var(--space-2); }
 
 /* ---------- 登录 ---------- */
-.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: var(--space-6); background: radial-gradient(1200px 620px at 18% 0%, var(--grad-forest) 0%, var(--grad-slate) 56%, var(--grad-ink) 100%); }
+.login-wrap { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: var(--space-6); background: radial-gradient(1200px 620px at 18% 0%, var(--grad-forest) 0%, var(--grad-slate) 56%, var(--grad-ink) 100%); }
 .login-card { background: var(--surface); border-radius: var(--radius); padding: 34px; width: 100%; max-width: 410px; box-shadow: var(--shadow-3); }
 .login-card h1 { margin: 0 0 6px; font-size: var(--fs-22); }
 .login-card .sub { color: var(--ink-3); font-size: var(--fs-13); margin-bottom: 22px; }

@@ -188,7 +188,7 @@ async function api(method, path, url, request, env) {
     const admin = await isAdmin(request);
     const body = { authenticated: !!s, user: user, isAdmin: admin, allowRegister: await registerOpen(dbm),
       registerMode: await registerMode(dbm), registerAvailable: await registerAvailable(dbm),
-      siteTitle: await dbm.getSetting('site_title', '医学量表与问卷平台') };
+      siteTitle: await dbm.getSetting('site_title', '医学量表与问卷平台'), deployment: 'cloudflare' };
     if (admin) body.defaultPassword = await dbm.isAdminPasswordDefault();
     return json(200, body, securityHeaders());
   }
@@ -502,21 +502,44 @@ async function api(method, path, url, request, env) {
   if (m = path.match(/^\/api\/surveys\/(\d+)\/export\.csv$/)) {
     const v = await viewer(request); const id = Number(m[1]); const s = await dbm.getSurvey(id);
     if (!s || !canView(s, v)) return json(403, { error: '无权查看' });
-    const rows = await dbm.listResponses(id);
-    const flat = rows.map(function (r) {
-      const o = { pid: r.pid, submittedAt: r.submittedAt, subjectId: r.subjectId || '', consent: r.consent ? 1 : 0 };
-      const ans = r.answers || {};
-      Object.keys(ans).forEach(function (k) { o['q_' + k] = ans[k]; });
+    const scale = await dbm.getScale(s.scaleId);
+    const responses = await dbm.listResponses(id);
+    const items = scale.definition.items;
+    const header = ['答卷编号', '提交时间', '用时(秒)', '是否同意知情同意'];
+    items.forEach(function (it) { header.push('第' + it.no + '题 ' + String(it.text).replace(/\s+/g, ' ')); });
+    (scale.definition.dimensions || []).forEach(function (d) { header.push('维度-' + d.name); });
+    header.push('总分', '分级');
+    if (s.collectMeta) header.push('IP');
+    const rows = [header];
+    responses.forEach(function (r) {
+      const row = [r.pid, r.submittedAt, r.durationSec === null || r.durationSec === undefined ? '' : r.durationSec, r.consent ? '是' : '否'];
+      items.forEach(function (it) { row.push(answerLabel(it, (r.answers || {})[it.id], '|')); });
       const sc = r.scores || {};
-      Object.keys(sc).forEach(function (k) { o['score_' + k] = sc[k]; });
-      return o;
+      (scale.definition.dimensions || []).forEach(function (d) {
+        const dv = sc.dimensions && sc.dimensions[d.id];
+        row.push(dv && dv.score !== null && dv.score !== undefined ? dv.score : '');
+      });
+      row.push(sc.total === null || sc.total === undefined ? '' : sc.total);
+      row.push(sc.cut ? sc.cut.label : '');
+      if (s.collectMeta) row.push(r.meta && r.meta.ip ? r.meta.ip : '');
+      rows.push(row);
     });
-    return new Response('﻿' + toCsv(flat), { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8' } });
+    await dbm.log('export_csv', s.name + ' n=' + responses.length);
+    return new Response(csvRows(rows), { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(s.name + '-数据导出.csv') } });
   }
   if (m = path.match(/^\/api\/surveys\/(\d+)\/export\.json$/)) {
     const v = await viewer(request); const id = Number(m[1]); const s = await dbm.getSurvey(id);
     if (!s || !canView(s, v)) return json(403, { error: '无权查看' });
-    return json(200, { survey: s, responses: await dbm.listResponses(id) });
+    const scale = await dbm.getScale(s.scaleId);
+    const responses = await dbm.listResponses(id);
+    const report = buildReport(scale.definition, responses);
+    const body = JSON.stringify({ exportedAt: new Date().toISOString(), survey: s, scale: scale.definition,
+      scaleMeta: { title: scale.title, source: scale.source, license: scale.license },
+      responses: responses, report: report }, null, 2);
+    await dbm.log('export_json', s.name + ' n=' + responses.length);
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(s.name + '-完整数据与统计.json') } });
   }
   /* SPSS/R 数值编码版导出（对齐 server.js /api/surveys/:id/export-spss.csv） */
   if (m = path.match(/^\/api\/surveys\/(\d+)\/export-spss\.csv$/)) {
@@ -559,12 +582,31 @@ async function api(method, path, url, request, env) {
     return new Response(csvRows(rows), { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(s.name + '-SPSS数值版.csv') } });
   }
+  /* 变量说明 codebook（对齐 server.js：变量名/类型/题目/取值说明 + 维度 + TOTAL + GRADE） */
   if (m = path.match(/^\/api\/surveys\/(\d+)\/codebook\.csv$/)) {
     const v = await viewer(request); const id = Number(m[1]); const s = await dbm.getSurvey(id);
     if (!s || !canView(s, v)) return json(403, { error: '无权查看' });
     const def = (await dbm.getScale(s.scaleId)).definition;
-    const cb = (def.items || []).map(function (it) { return { var: 'q_' + it.id, label: it.label || it.id, type: it.type || '' }; });
-    return new Response('﻿' + toCsv(cb), { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8' } });
+    const rows = [['变量名', '类型', '题目', '取值说明']];
+    (def.items || []).forEach(function (it) {
+      if (it.type === 'checkbox') {
+        (it.options || []).forEach(function (o, i) {
+          rows.push(['Q' + it.no + '_' + (i + 1), '二分类(0/1)', it.text, '选中"' + o.label + '"=1，否则=0']);
+        });
+      } else if (['radio', 'select', 'number', 'slider'].indexOf(it.type) >= 0) {
+        const map = (it.options || []).map(function (o) { return o.label + '=' + o.value; }).join('；');
+        rows.push(['Q' + it.no, it.type === 'number' || it.type === 'slider' ? '连续变量' : '分类/等级变量', it.text, map || '数值']);
+      } else {
+        rows.push(['Q' + it.no + '_TXT', '文本', it.text, '']);
+      }
+    });
+    (def.dimensions || []).forEach(function (d) {
+      rows.push(['DIM_' + d.id.toUpperCase(), '连续变量', '维度得分：' + d.name, '含 ' + (d.items || []).length + ' 个条目']);
+    });
+    rows.push(['TOTAL', '连续变量', '总分', '计分方式：' + JSON.stringify((def.scoring || {}).method || 'none')]);
+    rows.push(['GRADE', '等级变量', '分级判读', ((def.scoring || {}).cutoffs || []).map(function (c, i) { return (i + 1) + '=' + c.label; }).join('；')]);
+    return new Response(csvRows(rows), { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(s.name + '-变量说明.csv') } });
   }
 
   /* 随访研究（对齐 server.js /api/studies 系列；数据层 db-d1 已支持多时点） */
