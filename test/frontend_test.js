@@ -668,5 +668,39 @@ if (!dom.available()) {
   t.ok(progressBar && !progressBar.classList.contains('on'), '页面渲染完成后进度条收起', progressBar && progressBar.className);
   navDom.w.fetch = slowFetch;
 
+  console.log('\n【21】编辑器可把选项标记为「不适用」，计分按剩余项折算');
+  const odiTpl = (await admin.request('GET', '/api/scales')).json.items.find(function (s) { return s.code === 'odi'; });
+  const odiCopy = await admin.request('POST', '/api/scales', { fromTemplateId: odiTpl.id });
+  await dom.goto(hbiDom, '#/builder/' + odiCopy.json.id);
+  const odiRow = hbiDom.d.querySelector('.item-editor[data-id="odi1"] [data-opt-label="0"]').closest('.opt-row');
+  const odiNa = odiRow.querySelector('input[data-opt-na="0"]');
+  t.ok(!!odiNa && odiNa.checked === false, '「不适用」勾选框默认不选中');
+  odiNa.checked = true;
+  odiNa.dispatchEvent(new hbiDom.w.Event('change', { bubbles: true }));
+  hbiDom.d.getElementById('b-save').click();
+  await dom.wait(500);
+  const odiSaved = (await admin.request('GET', '/api/scales/' + odiCopy.json.id)).json;
+  const odiMarked = odiSaved.definition.items.find(function (it) { return it.id === 'odi1'; }).options[0];
+  t.ok(odiMarked.na === true, '保存后该选项带 na 标记，前后端共用同一份定义', odiMarked);
+  const odiAnswers = {};
+  odiSaved.definition.items.forEach(function (it) { odiAnswers[it.id] = 5; });
+  odiAnswers.odi1 = odiMarked.value;
+  const odiPreview = await admin.request('POST', '/api/preview-score', { definition: odiSaved.definition, answers: odiAnswers });
+  t.ok(odiPreview.status === 200 && odiPreview.json.total === 100 && odiPreview.json.notApplicable === 1,
+    '第 1 题标为不适用后按剩余 9 项折算仍是 100%，而不是 90%', odiPreview.json);
+  await dom.goto(hbiDom, '#/builder/' + odiCopy.json.id);
+  const odiNa2 = hbiDom.d.querySelector('.item-editor[data-id="odi1"] input[data-opt-na="0"]');
+  t.ok(odiNa2.checked === true, '重新打开编辑器仍显示「不适用」已勾选');
+  odiNa2.checked = false;
+  odiNa2.dispatchEvent(new hbiDom.w.Event('change', { bubbles: true }));
+  hbiDom.d.getElementById('b-save').click();
+  await dom.wait(500);
+  const odiCleared = (await admin.request('GET', '/api/scales/' + odiCopy.json.id)).json.definition.items
+    .find(function (it) { return it.id === 'odi1'; }).options[0];
+  t.ok(odiCleared.na === undefined, '取消勾选后 na 标记被清除，该选项恢复计分', odiCleared);
+  const odiBack = await admin.request('POST', '/api/preview-score', { definition: (await admin.request('GET', '/api/scales/' + odiCopy.json.id)).json.definition, answers: odiAnswers });
+  t.ok(odiBack.json.total === 90, '恢复计分后第 1 题按 0 分计入，十项均分 4.5×20 = 90%', odiBack.json);
+  await admin.request('DELETE', '/api/scales/' + odiCopy.json.id);
+
   process.exit(t.done('前端行为'));
 })();

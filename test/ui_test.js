@@ -188,7 +188,8 @@ async function nav(app, hash) {
   console.log('\n【C】量表详情（PHQ-9）');
   await nav(app, '#/scales');
   const phqCard = Array.from(app.d.querySelectorAll('.scale-card')).find(function (c) {
-    return c.textContent.indexOf('PHQ-9') >= 0;
+    const title = c.querySelector('.title .grow');
+    return (title ? title.textContent : '').indexOf('PHQ-9') >= 0;
   });
   phqCard.querySelector('[data-act="view"]').click();
   await wait(120);

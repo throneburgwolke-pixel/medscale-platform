@@ -2022,13 +2022,15 @@ function itemEditor(it, i) {
       '<button class="btn small danger" data-act="del">删除</button>' +
     '</div>' +
     '<textarea data-f="text" aria-label="题干文字" placeholder="请输入题干">' + esc(it.text) + '</textarea>' +
-    (hasOpts ? '<div class="mt8"><div class="muted small mb8">选项与分值（“分值”用于自动计分）</div>' +
+    (hasOpts ? '<div class="mt8"><div class="muted small mb8">选项与分值（“分值”用于自动计分；勾选“不适用”的选项不参与计分，也不计入分母）</div>' +
       '<div data-opts>' + (it.options || []).map(function (o, j) {
         const hasScore = o.score !== undefined;
         return '<div class="opt-row"><input type="text" class="lab" aria-label="选项文字" data-opt-label="' + j + '" value="' + esc(o.label) + '" placeholder="选项文字">' +
           (hasScore ? '<span class="small muted">编码：' + esc(o.value) + '</span>' : '') +
           '<input type="number" class="val" step="0.5" aria-label="选项分值" data-opt-' + (hasScore ? 'score' : 'value') + '="' + j +
             '" value="' + esc(hasScore ? (o.score === null ? '' : o.score) : o.value) + '" placeholder="分值"' + (hasScore && o.score === null ? ' disabled' : '') + '>' +
+          '<label class="small row nowrap" style="gap:3px" title="选中后该题不计分、也不进总分与维度分的分母（如 ODI 的“不适用”）">' +
+            '<input type="checkbox" style="width:auto" data-opt-na="' + j + '"' + (o.na === true ? ' checked' : '') + ' aria-label="标记为不适用">不适用</label>' +
           '<button class="btn small danger" data-opt-del="' + j + '" aria-label="删除该选项">×</button></div>';
       }).join('') + '</div>' +
       '<button class="btn small" data-act="add-opt">＋ 添加选项</button></div>' : '') +
@@ -2097,6 +2099,9 @@ function bindBuilder() {
     });
     $$('[data-opt-label],[data-opt-value],[data-opt-score]', root).forEach(function (el) {
       el.oninput = function () { applyOptionField(el); };
+    });
+    $$('[data-opt-na]', root).forEach(function (el) {
+      el.onchange = function () { applyOptionField(el); };
     });
     $$('[data-skip-val]', root).forEach(function (el) {
       el.onchange = function () { applySkipField(card, el, 'val'); };
@@ -2251,6 +2256,11 @@ function applyOptionField(el) {
   if (el.dataset.optScore !== undefined) {
     const option = it.options[Number(el.dataset.optScore)];
     if (option.score !== null) option.score = el.value === '' ? 0 : Number(el.value);
+  }
+  if (el.dataset.optNa !== undefined) {
+    const option = it.options[Number(el.dataset.optNa)];
+    if (el.checked) option.na = true;
+    else delete option.na;
   }
   scheduleEditorDraft();
 }

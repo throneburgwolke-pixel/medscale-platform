@@ -13,6 +13,49 @@ function T(code) { return TEMPLATES.find(function (x) { return x.code === code; 
 function allAs(tpl, v) { const a = {}; tpl.items.forEach(function (it) { a[it.id] = v; }); return a; }
 
 const CASES = [
+  /* ---------- 本轮新增：筛查与分级工具 ---------- */
+  { code: 'stop-bang', answers: function (s) { return allAs(s, 0); }, total: 0, cut: 'OSA 低危',
+    note: 'Chung 2008：8 项全否 = 0 分，低危' },
+  { code: 'stop-bang', answers: function (s) { return allAs(s, 1); }, total: 8, cut: 'OSA 高危',
+    note: 'Chung 2008：8 项全是 = 8 分，高危' },
+  { code: 'stop-bang', answers: function (s) {
+      const a = {}; s.items.forEach(function (it, i) { a[it.id] = i < 3 ? 1 : 0; }); return a;
+    }, total: 3, cut: 'OSA 中危', note: 'Chung 2008：3-4 分为中危，也是常用筛查阳性阈值' },
+  { code: 'mst', answers: function () { return { m1: 0, m2: 0 }; }, total: 0, cut: '无营养风险',
+    note: 'Morrison 1999：无体重下降且食欲正常 = 0 分' },
+  { code: 'mst', answers: function () { return { m1: 2, m2: 0 }; }, total: 2, cut: '存在营养风险',
+    note: 'Morrison 1999：下降 6-10 kg 记 2 分，总分 2 即为阳性' },
+  { code: 'mst', answers: function () { return { m1: 4, m2: 1 }; }, total: 5, cut: '存在营养风险',
+    note: 'Morrison 1999：下降 >15 kg(4) + 进食减少(1) = 5 分，为原表满分' },
+  { code: 'perc', answers: function (s) { return allAs(s, 0); }, total: 0, cut: 'PERC 全阴性',
+    note: 'Kline 2008：8 项全阴性才可考虑免检排除' },
+  { code: 'perc', answers: function (s) {
+      const a = {}; s.items.forEach(function (it, i) { a[it.id] = i === 0 ? 1 : 0; }); return a;
+    }, total: 1, cut: 'PERC 阳性', note: 'Kline 2008：任一项阳性即需继续评估' },
+  { code: 'flacc', answers: function (s) { return allAs(s, 0); }, total: 0, cut: '放松舒适',
+    note: 'Merkel 1997：五项 0 分 = 0，放松舒适' },
+  { code: 'flacc', answers: function (s) { return allAs(s, 1); }, total: 5, cut: '中度疼痛',
+    note: 'Merkel 1997：五项各 1 分合计 5，落在 4-6 中度疼痛' },
+  { code: 'flacc', answers: function (s) { return allAs(s, 2); }, total: 10, cut: '重度疼痛或不适',
+    note: 'Merkel 1997：五项 2 分 = 10 分，7-10 为重度' },
+  { code: 'asa-ps', answers: function () { return { asa: 3, asa_e: 1 }; }, total: 3, cut: 'ASA Ⅲ 级',
+    note: 'ASA 2020 修订版：急诊标注 E 不改变分级分值' },
+  { code: 'phq-a', answers: function (s) { return allAs(s, 3); }, total: 27, cut: '重度抑郁症状',
+    note: 'PHQ-A：9 项满分 27，功能受损提问（第10题）不计入总分' },
+  { code: 'phq-a', answers: function (s) {
+      const a = {}; s.items.forEach(function (it) { a[it.id] = 0; }); a.pa9 = 1; return a;
+    }, total: 1, cut: '无或极轻微抑郁症状', note: '总分虽低，第 9 题阳性必须单独预警' },
+  { code: 'ipaq-sf', answers: function () {
+      return { v_days: 3, v_min: 30, m_days: 5, m_min: 30, w_days: 7, w_min: 30, s_days: 7, s_min: 300 };
+    }, total: 2013, cut: '活动量中等',
+    note: 'IPAQ 计分规程：8×90 + 4×150 + 3.3×210 = 2013 MET-min/周，久坐不计入' },
+  { code: 'ipaq-sf', answers: function () {
+      return { v_days: 0, v_min: 0, m_days: 0, m_min: 0, w_days: 0, w_min: 0, s_days: 7, s_min: 600 };
+    }, total: 0, cut: '活动量偏低（<600 MET-min/周）', note: '只久坐不活动 → 0 MET-min/周' },
+  { code: 'quickdash', answers: function (s) { return allAs(s, 1); }, total: 0,
+    note: 'QuickDASH 用户手册：均分 1 → [(1-1)/4]×100 = 0' },
+  { code: 'quickdash', answers: function (s) { return allAs(s, 5); }, total: 100,
+    note: 'QuickDASH 用户手册：均分 5 → [(5-1)/4]×100 = 100' },
   { code: 'phq-9', answers: function (s) { return allAs(s, 2); }, total: 18, cut: '中重度抑郁',
     note: 'Kroenke 2001：15-19 为中重度抑郁' },
   { code: 'gad-7', answers: function (s) { return allAs(s, 1); }, total: 7, cut: '轻度焦虑',
@@ -191,6 +234,45 @@ t.ok(JSON.stringify(wexnerDuration) === JSON.stringify(['<1年', '1–<5年', '5
   'Wexner病程选项互不重叠且覆盖1年以内到20年以上', wexnerDuration);
 
 t.ok(!(T('sofa').scoring.cutoffs || []).length, 'SOFA不按绝对总分作临床分级');
+
+/* ---------- 本轮新增：不适用折算与维度分 ---------- */
+const odi = T('odi');
+const odiMax = {}; odi.items.forEach(function (it) { odiMax[it.id] = 5; });
+t.ok(scoreResponse(odi, odiMax).total === 100, 'ODI 十项满分 = 100%', scoreResponse(odi, odiMax));
+const odiNa = Object.assign({}, odiMax, { odi1: 'na', odi2: 'na' });
+const rOdiNa = scoreResponse(odi, odiNa);
+t.ok(rOdiNa.total === 100 && rOdiNa.notApplicable === 2,
+  'ODI 两项标为不适用后按剩余 8 项折算，仍为 100%（不适用≠0 分）', rOdiNa);
+const odiNaHalf = {}; odi.items.forEach(function (it, i) { odiNaHalf[it.id] = i < 5 ? 2 : 'na'; });
+t.ok(scoreResponse(odi, odiNaHalf).total === 40, 'ODI 五项各 2 分、五项不适用 → 均分 2×20 = 40%', scoreResponse(odi, odiNaHalf));
+t.ok(odi.items.every(function (it) { return it.options.some(function (o) { return o.na === true; }); }),
+  'ODI 每题都预置「不适用」选项');
+
+const womac = T('womac');
+const womacMax = {}; womac.items.forEach(function (it) { womacMax[it.id] = 4; });
+const rW = scoreResponse(womac, womacMax);
+t.ok(rW.total === 96, 'WOMAC 24 项满分 = 96', rW.total);
+t.ok(rW.dimensions.pain.score === 20 && rW.dimensions.stiffness.score === 8 && rW.dimensions.function.score === 68,
+  'WOMAC 维度满分：疼痛 20 / 僵硬 8 / 功能 68', rW.dimensions);
+
+const ipaq = T('ipaq-sf');
+t.ok(ipaq.items.filter(function (it) { return it.id.indexOf('s_') === 0; }).length === 2 &&
+  ipaq.scoring.formula === 'ipaq-met', 'IPAQ 久坐两项单独记录，总分走 MET 公式');
+const sitOnly = { v_days: 0, v_min: 0, m_days: 0, m_min: 0, w_days: 0, w_min: 0, s_days: 7, s_min: 600 };
+t.ok(validateAnswers(ipaq, sitOnly).length === 0, 'IPAQ 只填久坐不活动的合法答卷能通过校验');
+t.ok(validateAnswers(ipaq, { v_days: 8, v_min: 30, m_days: 5, m_min: 30, w_days: 7, w_min: 30, s_days: 7, s_min: 300 }).length > 0,
+  'IPAQ 天数超过 7 会被范围校验拦下');
+
+const phqa = T('phq-a');
+const phqaAll = {}; phqa.items.forEach(function (it) { phqaAll[it.id] = 3; });
+t.ok(scoreResponse(phqa, phqaAll).total === 27, 'PHQ-A 第 10 项功能受损提问不计入 0-27 总分', scoreResponse(phqa, phqaAll).total);
+const phqaRisky = {}; phqa.items.forEach(function (it) { phqaRisky[it.id] = 0; }); phqaRisky.pa9 = 1;
+const rPhqa = scoreResponse(phqa, phqaRisky);
+t.ok(rPhqa.flags.length === 1 && rPhqa.flags[0].itemId === 'pa9', 'PHQ-A 自杀意念条目单独预警', rPhqa.flags);
+
+const asa = T('asa-ps');
+const rAsa = scoreResponse(asa, { asa: 4, asa_e: 1 });
+t.ok(rAsa.total === 4 && rAsa.cut.label === 'ASA Ⅳ 级', 'ASA 急诊标记不参与分值累加', rAsa);
 
 ['n5a', 'n5b', 'n6a', 'n6b', 'n7', 'n10'].forEach(function (id) {
   const tpl = T('nihss');

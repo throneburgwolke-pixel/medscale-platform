@@ -199,6 +199,20 @@ ok(cats.size >= 8, '目录覆盖 ' + cats.size + ' 个分类');
   ok(CATALOG.some(function (c) { return c.name.indexOf(name) >= 0; }), '目录列出复杂/版本化评分：' + name);
 });
 
+/* 目录里写「已内置」的条目必须真能找到对应模板，避免目录与量表库脱节后仍宣称可用 */
+function acronyms(text) {
+  return (String(text).match(/[A-Za-z][A-Za-z0-9₂-₉\-]{1,}/g) || []).map(function (x) { return x.toUpperCase(); });
+}
+CATALOG.filter(function (c) { return /✅|本平台已内置/.test(c.note || ''); }).forEach(function (c) {
+  const keys = acronyms(c.name).concat(acronyms(c.note));
+  if (!keys.length) keys.push(String(c.name).slice(0, 4)); // 纯中文条目按名称前缀匹配
+  const hit = TEMPLATES.some(function (t) {
+    const title = (t.title + ' ' + t.code).toUpperCase();
+    return keys.some(function (k) { return k.length >= 3 && title.indexOf(k.toUpperCase()) >= 0; });
+  });
+  ok(hit, '目录标注已内置的条目存在对应模板：' + c.name, keys.slice(0, 4));
+});
+
 console.log('\n———————————————————————————————');
 console.log('  量表库自检：通过 ' + pass + ' 项，失败 ' + fail + ' 项');
 console.log('———————————————————————————————\n');

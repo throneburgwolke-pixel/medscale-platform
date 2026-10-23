@@ -89,4 +89,79 @@ t.ok(S.scoreResponse(GBS, { sex: 0, urea: 7, hb: 110, sbp: 105, pulse: 100, mele
   '女性独立手算：尿素2 + Hb1 + SBP1 + 心率1 + 黑便1 = 6', S.scoreResponse(GBS, { sex: 0, urea: 7, hb: 110, sbp: 105, pulse: 100, melena: 1, syncope: 0, liver: 0, cardiac: 0 }));
 t.ok(typeof S.FORMULAS['glasgow-blatchford'] === 'function', 'GBS公式注册');
 
+console.log('\n【7】均分计分支持 multiplier（ODI 百分分）');
+const meanScale = {
+  items: [{ id: 'm1', type: 'radio', options: [{ label: '0', value: 0 }, { label: '5', value: 5 }] },
+    { id: 'm2', type: 'radio', options: [{ label: '0', value: 0 }, { label: '5', value: 5 }] }],
+  dimensions: [], scoring: { method: 'mean', multiplier: 20 },
+};
+t.ok(S.scoreResponse(meanScale, { m1: 5, m2: 5 }).total === 100, '均分 5 × 20 = 100', S.scoreResponse(meanScale, { m1: 5, m2: 5 }));
+t.ok(S.scoreResponse(meanScale, { m1: 0, m2: 5 }).total === 50, '均分 2.5 × 20 = 50');
+
+console.log('\n【8】选项「不适用」：不计分，也不进分母');
+function odiItem(id) {
+  return { id: id, type: 'radio', options: [
+    { label: id + ' 0', value: 0 }, { label: id + ' 1', value: 1 }, { label: id + ' 2', value: 2 },
+    { label: id + ' 3', value: 3 }, { label: id + ' 4', value: 4 }, { label: id + ' 5', value: 5 },
+    { label: '不适用', value: 'na', na: true }] };
+}
+const odiIds = [];
+for (let i = 1; i <= 10; i += 1) odiIds.push('o' + i);
+const ODI = {
+  items: odiIds.map(odiItem),
+  dimensions: [{ id: 'total', name: '总分', items: odiIds }],
+  scoring: { method: 'mean', multiplier: 20, cutoffs: [{ max: 40, label: '中度以下' }, { max: 100, label: '重度' }] },
+};
+const odiAllMax = {};
+odiIds.forEach(function (id) { odiAllMax[id] = 5; });
+t.ok(S.scoreResponse(ODI, odiAllMax).total === 100, 'ODI 十项全选最高分 = 100%');
+const odiOneNa = Object.assign({}, odiAllMax, { o7: 'na' });
+const rOneNa = S.scoreResponse(ODI, odiOneNa);
+t.ok(rOneNa.total === 100 && rOneNa.invalid !== true, '一项标为不适用后仍按剩余 9 项折算 = 100%', rOneNa);
+t.ok(rOneNa.dimensions.total.score === 100, '维度分同样排除不适用项', rOneNa.dimensions.total);
+const odiHalfNa = {};
+odiIds.forEach(function (id, i) { odiHalfNa[id] = i < 4 ? 4 : 'na'; });
+t.ok(S.scoreResponse(ODI, odiHalfNa).total === 80, '4 项各 4 分、6 项不适用 → 均分 4 × 20 = 80', S.scoreResponse(ODI, odiHalfNa));
+t.ok(S.validateAnswers(ODI, odiOneNa).length === 0, '「不适用」是合法选项，提交校验放行', S.validateAnswers(ODI, odiOneNa));
+const odiAllNa = {};
+odiIds.forEach(function (id) { odiAllNa[id] = 'na'; });
+t.ok(S.scoreResponse(ODI, odiAllNa).total === null, '全部不适用时不产出总分');
+
+console.log('\n【9】IPAQ-SF MET-min/周 公式');
+const ipaqItems = [
+  { id: 'v_days', type: 'number', min: 0, max: 7 }, { id: 'v_min', type: 'number', min: 0, max: 1440 },
+  { id: 'm_days', type: 'number', min: 0, max: 7 }, { id: 'm_min', type: 'number', min: 0, max: 1440 },
+  { id: 'w_days', type: 'number', min: 0, max: 7 }, { id: 'w_min', type: 'number', min: 0, max: 1440 },
+  { id: 's_days', type: 'number', min: 0, max: 7 }, { id: 's_min', type: 'number', min: 0, max: 1440 },
+];
+const IPAQ = { items: ipaqItems, dimensions: [],
+  scoring: { method: 'formula', formula: 'ipaq-met',
+    cutoffs: [{ max: 599, label: '活动量低' }, { max: 3000, label: '活动量中等' }, { max: 99999, label: '活动量高' }] } };
+const ipaqMixed = { v_days: 3, v_min: 30, m_days: 5, m_min: 30, w_days: 7, w_min: 30, s_days: 7, s_min: 300 };
+t.ok(S.scoreResponse(IPAQ, ipaqMixed).total === 2013,
+  '剧烈 3×30×8 + 中等 5×30×4 + 步行 7×30×3.3 = 720+600+693 = 2013', S.scoreResponse(IPAQ, ipaqMixed));
+t.ok(S.scoreResponse(IPAQ, ipaqMixed).cut.label === '活动量中等', '2013 MET-min/周落在中等档');
+t.ok(S.scoreResponse(IPAQ, { v_days: 0, v_min: 0, m_days: 0, m_min: 0, w_days: 0, w_min: 0, s_days: 5, s_min: 600 }).total === 0,
+  '只久坐不活动 → 活动量 0（久坐单独计，不计入活动 MET）');
+t.ok(S.scoreResponse(IPAQ, { v_days: 7, v_min: 60, m_days: 7, m_min: 60, w_days: 7, w_min: 60, s_days: 0, s_min: 0 }).total === 6426,
+  '逐项核对：8×420 + 4×420 + 3.3×420 = 3360+1680+1386 = 6426', S.scoreResponse(IPAQ, { v_days: 7, v_min: 60, m_days: 7, m_min: 60, w_days: 7, w_min: 60, s_days: 0, s_min: 0 }));
+t.ok(S.scoreResponse(IPAQ, { v_days: 3, v_min: 30, m_days: 5, m_min: 30, w_days: 7, s_days: 7, s_min: 300 }).total === null,
+  '缺步行时长 → 不静默按 0 计算');
+
+console.log('\n【10】QuickDASH 0-100 公式');
+const qdIds = [];
+for (let i = 1; i <= 11; i += 1) qdIds.push('d' + i);
+const QD = { items: qdIds.map(function (id) {
+    return { id: id, type: 'radio', options: [1, 2, 3, 4, 5].map(function (v) { return { label: String(v), value: v }; }) };
+  }),
+  dimensions: [], scoring: { method: 'formula', formula: 'quickdash' } };
+const qdAll1 = {}; const qdAll5 = {}; const qdAll2 = {};
+qdIds.forEach(function (id) { qdAll1[id] = 1; qdAll5[id] = 5; qdAll2[id] = 2; });
+t.ok(S.scoreResponse(QD, qdAll1).total === 0, '11 项全部「没有困难」= 0 分');
+t.ok(S.scoreResponse(QD, qdAll5).total === 100, '11 项全部「极严重」= 100 分');
+t.ok(S.scoreResponse(QD, qdAll2).total === 25, '均分 2 →（2-1)/4×100 = 25', S.scoreResponse(QD, qdAll2));
+const qdMissing = Object.assign({}, qdAll2); delete qdMissing.d11;
+t.ok(S.scoreResponse(QD, qdMissing).total === null && S.scoreResponse(QD, qdMissing).invalid === true,
+  'QuickDASH 要求 11 项全部作答，缺项不折算');
+
 process.exit(t.done('分档与公式计分'));
