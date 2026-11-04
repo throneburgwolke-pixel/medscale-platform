@@ -75,12 +75,27 @@ TEMPLATES.forEach(function (t) {
     ok(rMin.total === null, t.code + ' 不计分量表总分应为空');
     return;
   }
+  if (t.scoring.totalEnabled === false) {
+    ok(rMin.total === null && rMax.total === null, t.code + ' 明确禁用的合计总分为空');
+    ok(Object.values(rMax.dimensions).some(function (d) { return Number.isFinite(d.score); }),
+      t.code + ' 仍保留有效的独立维度分');
+    return;
+  }
   if (mode === 'custom') {
     ok(rMax.total !== null, t.code + ' 专用计分可算出总分');
     return;
   }
   if (mode === 'formula') {
-    ok(rMin.total !== null && rMax.total !== null, t.code + ' 公式计分在取值范围两端都能算出总分', [rMin.total, rMax.total]);
+    ok(rMin.total !== null, t.code + ' 最小有效输入可计分');
+    if (t.code === 'wfns-sah') {
+      ok(rMax.total === null && rMax.invalidReason === 'unsupported_combination',
+        'WFNS GCS15伴运动缺损的未覆盖组合不猜测级别', rMax);
+    } else if (t.code === 'ipaq-sf') {
+      ok(rMax.total === null && rMax.invalidReason === 'invalid_activity_time',
+        'IPAQ每天极端活动时长先排除而不强行产出最高分', rMax);
+    } else {
+      ok(rMax.total !== null, t.code + ' 最大合法输入可计分', rMax.total);
+    }
     return;
   }
   const range = t.scoring.totalRange;

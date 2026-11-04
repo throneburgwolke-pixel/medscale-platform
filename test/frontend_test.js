@@ -702,5 +702,279 @@ if (!dom.available()) {
   t.ok(odiBack.json.total === 90, '恢复计分后第 1 题按 0 分计入，十项均分 4.5×20 = 90%', odiBack.json);
   await admin.request('DELETE', '/api/scales/' + odiCopy.json.id);
 
+  console.log('\n【22】无合计总分也展示分量表与独立风险提示');
+  async function submitDimensionPreview(def, values) {
+    formulaDom.w.MEDSCALE_FILL.render({ scale: { title: '独立分量表', definition: def }, survey: {} }, null, true);
+    for (let section = 0; section < 4 && formulaDom.d.getElementById('f-next'); section += 1) {
+      Object.keys(values).forEach(function (id) {
+        const input = formulaDom.d.querySelector('[data-in="' + id + '"][value="' + values[id] + '"]');
+        if (input) input.click();
+      });
+      formulaDom.d.getElementById('f-next').click();
+    }
+    const submit = formulaDom.d.getElementById('f-submit');
+    if (!submit) throw new Error('独立分量表未进入核对页');
+    submit.click();
+    await dom.wait(260);
+  }
+  const dimensionDef = {
+    rater: 'clinician', items: [plainItem('ds1'), plainItem('ds2')],
+    dimensions: [{ id: 'one', name: '1 分钟 Apgar', items: ['ds1'] }, { id: 'five', name: '5 分钟 Apgar', items: ['ds2'] }],
+    scoring: { method: 'sum', totalEnabled: false },
+  };
+  await submitDimensionPreview(dimensionDef, { ds1: 1, ds2: 0 });
+  t.ok(/1 分钟 Apgar/.test(formulaDom.d.body.textContent) && /5 分钟 Apgar/.test(formulaDom.d.body.textContent),
+    '总分为空仍展示两个独立时点');
+  t.ok(!/总分/.test(formulaDom.d.body.textContent), '不出现无意义的时点合计总分');
+  const riskDef = {
+    rater: 'clinician', items: [plainItem('ds1')],
+    dimensions: [{ id: 'anxiety', name: '焦虑', items: ['ds1'], cutoffs: [{ max: 1, label: '边缘范围', level: 'moderate' }] }],
+    scoring: { method: 'sum', totalEnabled: false, criticalItems: ['ds1'], criticalMessage: '需独立关注的安全提示' },
+  };
+  await submitDimensionPreview(riskDef, { ds1: 1 });
+  t.ok(/边缘范围/.test(formulaDom.d.body.textContent), '单个分量表的判读也展示');
+  t.ok(/需独立关注的安全提示/.test(formulaDom.d.body.textContent), '没有合计总分时仍显示独立风险提示');
+  const invalidDef = {
+    items: [{ id: 'un1', no: 1, text: '无法评估记录', type: 'radio', options: [{ label: '无法评估', value: 'un', score: null }] }],
+    dimensions: [], scoring: { method: 'sum' },
+  };
+  await submitDimensionPreview(invalidDef, { un1: 'un' });
+  t.ok(/无法.*计分|无法.*评分/.test(formulaDom.d.body.textContent), '无有效分数时说明无法计分而不伪装成功结果');
+
+  // 以下独立统计选项身份回归；不修改前 22 节，也不依赖医学模板的具体编码。
+  const identityTests = http.makeCounter();
+  async function makeIdentityScale(title, items) {
+    const created = await admin.request('POST', '/api/scales', { scale: {
+      title: title, category: '通用问卷', definition: {
+        items: items, dimensions: [], scoring: { method: 'sum' },
+      },
+    } });
+    if (created.status !== 200 || !created.json.id) throw new Error('身份测试建表失败：' + created.text);
+    return created.json;
+  }
+  async function identityEditor(id) {
+    const editor = dom.makeDom(srv, admin.cookieStore);
+    await dom.wait(320);
+    await dom.goto(editor, '#/builder/' + id);
+    return editor;
+  }
+  function optionRow(editor, id, index) {
+    return editor.d.querySelector('.item-editor[data-id="' + id + '"] [data-opt-label="' + index + '"]').closest('.opt-row');
+  }
+  function editOptionInput(editor, input, value) {
+    input.value = value;
+    input.dispatchEvent(new editor.w.Event('input', { bubbles: true }));
+  }
+
+  console.log('\n【23】字符串与不适用选项：只读编码、事件防篡改、保存重载');
+  const identityScale = await makeIdentityScale('选项身份与不适用回归', [{
+    id: 'identity1', no: 1, text: '身份稳定的选项', type: 'radio', options: [
+      { label: '正常零分', value: 0 },
+      { label: '不适用无独立分', value: 'na', na: true },
+      { label: '字符串无独立分', value: 'coded' },
+      { label: '字符串独立分', value: 'scored', score: 3 },
+      { label: '不适用有独立分', value: 'na-scored', score: 5, na: true },
+      { label: '无法计分', value: 'un', score: null },
+      { label: '数字不适用无独立分', value: 6, na: true },
+      { label: '数字不适用有独立分', value: 7, score: 4, na: true },
+    ],
+  }]);
+  const identityDom = await identityEditor(identityScale.id);
+  [1, 2, 3, 4, 5].forEach(function (index) {
+    const row = optionRow(identityDom, 'identity1', index);
+    const value = identityScale.definition.items[0].options[index].value;
+    identityTests.ok(!row.querySelector('[data-opt-value]') && row.textContent.indexOf('编码：' + value) >= 0,
+      value + '：字符串编码只读显示，不进入数值输入框');
+  });
+  [1, 4, 5, 6, 7].forEach(function (index) {
+    const scoreInput = optionRow(identityDom, 'identity1', index).querySelector('input[aria-label="选项分值"]');
+    identityTests.ok(scoreInput.disabled, '选项 ' + index + '：不适用/score:null 禁用分值');
+    editOptionInput(identityDom, scoreInput, '9');
+    editOptionInput(identityDom, scoreInput, '');
+  });
+  editOptionInput(identityDom, optionRow(identityDom, 'identity1', 1).querySelector('[data-opt-label]'), '改文案仍不适用');
+  editOptionInput(identityDom, optionRow(identityDom, 'identity1', 2).querySelector('input[aria-label="选项分值"]'), '2.5');
+  editOptionInput(identityDom, optionRow(identityDom, 'identity1', 3).querySelector('input[aria-label="选项分值"]'), '4.5');
+  // 切换 NA 必须即时更新分值可编辑状态，但不得重写编码或原分值。
+  const numericNa = optionRow(identityDom, 'identity1', 0).querySelector('[data-opt-na]');
+  numericNa.checked = true;
+  numericNa.dispatchEvent(new identityDom.w.Event('change', { bubbles: true }));
+  const numericScore = optionRow(identityDom, 'identity1', 0).querySelector('input[aria-label="选项分值"]');
+  identityTests.ok(numericScore.disabled, '勾选 NA 立即禁用数字选项分值');
+  editOptionInput(identityDom, numericScore, '8');
+  numericNa.checked = false;
+  numericNa.dispatchEvent(new identityDom.w.Event('change', { bubbles: true }));
+  identityTests.ok(!numericScore.disabled, '取消 NA 恢复分值可编辑');
+  identityDom.d.getElementById('b-save').click();
+  await dom.wait(420);
+  const identitySaved = (await admin.request('GET', '/api/scales/' + identityScale.id)).json;
+  const stableOptions = identitySaved.definition.items[0].options;
+  identityTests.ok(stableOptions[1].value === 'na' && stableOptions[1].na === true && stableOptions[1].score === undefined &&
+    stableOptions[1].label === '改文案仍不适用', 'NA 输入/清空、改 label 后保存仍保留 na 编码与缺省 score', stableOptions[1]);
+  identityTests.ok(stableOptions[2].value === 'coded' && stableOptions[2].score === 2.5 &&
+    stableOptions[3].value === 'scored' && stableOptions[3].score === 4.5,
+    '字符串选项的分值编辑仅写独立 score，不覆盖有/无 score 的原编码', stableOptions.slice(2, 4));
+  identityTests.ok(stableOptions[4].value === 'na-scored' && stableOptions[4].score === 5 &&
+    stableOptions[5].value === 'un' && stableOptions[5].score === null &&
+    stableOptions[6].value === 6 && stableOptions[6].score === undefined &&
+    stableOptions[7].value === 7 && stableOptions[7].score === 4,
+    '程序触发禁用分值的事件也不能改变 NA/UN 编码与分值', stableOptions.slice(4));
+  identityTests.ok(stableOptions[0].value === 0 && stableOptions[0].na === undefined,
+    '只切换 NA 不改变正常零分选项编码', stableOptions[0]);
+  const identityReload = await identityEditor(identityScale.id);
+  const reloadedNa = optionRow(identityReload, 'identity1', 1);
+  identityTests.ok(reloadedNa.textContent.indexOf('编码：na') >= 0 &&
+    reloadedNa.querySelector('[data-opt-label]').value === '改文案仍不适用' &&
+    reloadedNa.querySelector('input[aria-label="选项分值"]').disabled,
+    '全新页面重载后 NA 编码、文案与禁用状态仍保留');
+  identityDom.w.close();
+  identityReload.w.close();
+
+  console.log('\n【24】末尾 na/un、倒序与数字字符串编码：连续新增保存重载与预览计分');
+  const additionFixtures = [
+    { name: '末尾na', options: [{ label: '零分', value: 0 }, { label: '不适用', value: 'na', na: true }] },
+    { name: '末尾un', options: [{ label: '零分', value: 0 }, { label: '无法评估', value: 'un', score: null }] },
+    { name: '倒序2,1', options: [{ label: '两分', value: 2 }, { label: '一分', value: 1 }] },
+    { name: '数字字符串', options: [{ label: '编码一', value: '1', score: 1 }, { label: '零分', value: 0 }] },
+  ];
+  for (const fixture of additionFixtures) {
+    const addition = await makeIdentityScale('新增身份-' + fixture.name, [{
+      id: 'add1', no: 1, text: '选择新增选项', type: 'radio', options: fixture.options,
+    }]);
+    const editor = await identityEditor(addition.id);
+    for (let index = 2; index < 5; index += 1) {
+      editor.d.querySelector('.item-editor[data-id="add1"] [data-act="add-opt"]').click();
+      editOptionInput(editor, optionRow(editor, 'add1', index).querySelector('[data-opt-label]'), '新增选项 ' + index);
+    }
+    editor.d.getElementById('b-save').click();
+    await dom.wait(420);
+    const saved = (await admin.request('GET', '/api/scales/' + addition.id)).json;
+    const options = saved.definition.items[0].options;
+    const valid = options.length === 5 && options.slice(2).every(function (o) {
+      return typeof o.value === 'number' && Number.isFinite(o.value) && !!o.label;
+    }) && new Set(options.map(function (o) { return String(o.value); })).size === 5;
+    identityTests.ok(valid, fixture.name + '：连续新增三个选项后保存身份唯一且是有限数值', options);
+    identityTests.ok(JSON.stringify(options.slice(0, 2)) === JSON.stringify(fixture.options),
+      fixture.name + '：新增不得批量重编码既有选项', options.slice(0, 2));
+    const reload = await identityEditor(addition.id);
+    identityTests.ok(reload.d.querySelectorAll('.item-editor[data-id="add1"] [data-opt-label]').length === 5,
+      fixture.name + '：保存后全新页面重载仍有三个新增选项');
+    // 基线的 NaN/null 或冲突可能被服务端拒绝；仍记录断言，不让准备步骤崩溃掩盖后续用例。
+    if (valid) {
+      let previewPayload = null;
+      let previewResult = null;
+      const fetch = reload.w.fetch;
+      reload.w.fetch = async function (url, opts) {
+        if (url === '/api/preview-score') previewPayload = JSON.parse(opts.body);
+        const response = await fetch(url, opts);
+        if (url === '/api/preview-score') {
+          const text = response.text;
+          response.text = async function () {
+            const body = await text.call(response);
+            previewResult = JSON.parse(body);
+            return body;
+          };
+        }
+        return response;
+      };
+      reload.d.getElementById('b-preview').click();
+      await dom.wait(200);
+      const chosen = options[4].value;
+      const choice = reload.d.querySelector('[data-in="add1"][value="' + chosen + '"]');
+      if (choice) choice.click();
+      const next = reload.d.getElementById('f-next');
+      if (next) next.click();
+      const submit = reload.d.getElementById('f-submit');
+      if (submit) submit.click();
+      await dom.wait(260);
+      identityTests.ok(!!previewPayload && String(previewPayload.answers.add1) === String(chosen) &&
+        !!previewResult && previewResult.total === chosen,
+        fixture.name + '：实际选择新增项通过 preview-score 得到对应分值', { payload: previewPayload, result: previewResult });
+    } else {
+      identityTests.ok(false, fixture.name + '：实际选择新增项通过 preview-score 得到对应分值（保存身份无效）');
+    }
+    editor.w.close();
+    reload.w.close();
+  }
+
+  console.log('\n【25】同题 String(value) 冲突：所有保存/发布入口前端拦截且保留编辑');
+  const collision = await makeIdentityScale('人为编码冲突', [plainItem('safe1'), {
+    id: 'collision2', no: 2, text: '编码冲突题', type: 'radio', options: [
+      { label: '字符串一', value: '1', score: 1 }, { label: '数字二', value: 2 },
+    ],
+  }]);
+  const collisionDom = await identityEditor(collision.id);
+  let collisionWrites = 0;
+  const collisionFetch = collisionDom.w.fetch;
+  collisionDom.w.fetch = function (url, opts) {
+    if (opts && /^(POST|PUT)$/.test(opts.method || '') && /^\/api\/(scales|surveys)/.test(url)) collisionWrites += 1;
+    return collisionFetch(url, opts);
+  };
+  editOptionInput(collisionDom, optionRow(collisionDom, 'collision2', 1).querySelector('[data-opt-value]'), '1');
+  for (const button of ['b-save', 'b-save2', 'b-publish2', 'b-preview', 'keyboard-save']) {
+    collisionDom.d.getElementById('toast-host').innerHTML = '';
+    const before = collisionWrites;
+    if (button === 'keyboard-save') {
+      collisionDom.d.dispatchEvent(new collisionDom.w.KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+    } else {
+      const control = collisionDom.d.getElementById(button);
+      if (control) control.click();
+    }
+    await dom.wait(220);
+    const message = collisionDom.d.getElementById('toast-host').textContent;
+    identityTests.ok(collisionWrites === before && /第\s*2\s*题/.test(message) && /编码/.test(message) && /重复|冲突/.test(message),
+      button + '：编码 1 与字符串 "1" 冲突在前端被拦截并指出第2题', { writes: collisionWrites - before, message: message });
+    const retained = collisionDom.d.querySelector('.item-editor[data-id="collision2"] [data-opt-value="1"]');
+    identityTests.ok(!!retained && retained.value === '1' && !collisionDom.d.getElementById('p-name'),
+      button + '：留在编辑器，保留冲突值供手动修复，不打开发布对话框');
+  }
+  const collisionSaved = (await admin.request('GET', '/api/scales/' + collision.id)).json;
+  identityTests.ok(collisionSaved.definition.items[1].options[1].value === 2, '被拦截的保存不改变服务端既有选项身份');
+  collisionDom.w.close();
+
+  console.log('\n【26】历史异常编码：空值、非法类型与非有限数字保存/直接发布均拦截');
+  const invalidValues = ['', '  ', null, undefined, true, {}, [], Infinity, -Infinity, '1'];
+  for (let index = 0; index < invalidValues.length; index += 1) {
+    const editor = dom.makeDom(srv, admin.cookieStore);
+    const fetch = editor.w.fetch;
+    let writes = 0;
+    // 模拟读取历史异常定义；仍走真实渲染/校验/请求，不向测试后端写入坏数据。
+    editor.w.fetch = async function (url, opts) {
+      if (opts && /^(POST|PUT)$/.test(opts.method || '') && /^\/api\/(scales|surveys)/.test(url)) writes += 1;
+      const response = await fetch(url, opts);
+      if (url === '/api/scales/' + collision.id && (!opts || !opts.method || opts.method === 'GET')) {
+        const text = response.text;
+        response.text = async function () {
+          const scale = JSON.parse(await text.call(response));
+          const value = invalidValues[index];
+          scale.definition.items[1].options[1].value = value;
+          // JSON 的大指数数字会解析为 Infinity；不能用 stringify 将其误测成 null。
+          if (typeof value === 'number' && !Number.isFinite(value)) {
+            scale.definition.items[1].options[1].value = '__identity_nonfinite__';
+            return JSON.stringify(scale).replace('"__identity_nonfinite__"', value < 0 ? '-1e309' : '1e309');
+          }
+          return JSON.stringify(scale);
+        };
+      }
+      return response;
+    };
+    await dom.wait(320);
+    await dom.goto(editor, '#/builder/' + collision.id);
+    editor.d.getElementById('b-save').click();
+    await dom.wait(160);
+    const message = editor.d.getElementById('toast-host').textContent;
+    identityTests.ok(writes === 0 && /第\s*2\s*题/.test(message) && /编码/.test(message) && !!editor.d.getElementById('b-save'),
+      '异常编码 #' + index + '：保存前校验非空、string/finite number 并保留编辑器', { writes: writes, message: message });
+    await dom.goto(editor, '#/scale/' + collision.id);
+    editor.d.getElementById('d-publish').click();
+    await dom.wait(320);
+    identityTests.ok(!editor.d.getElementById('p-name') && editor.w.location.hash === '#/builder/' + collision.id,
+      '异常编码 #' + index + '：详情页直接发布也拦截并返回编辑器');
+    editor.w.close();
+  }
+  identityTests.done('选项身份目标测试（23–26节）');
+  t.pass += identityTests.pass;
+  t.fail += identityTests.fail;
+
   process.exit(t.done('前端行为'));
 })();

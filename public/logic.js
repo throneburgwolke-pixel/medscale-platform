@@ -95,6 +95,66 @@ const MEDSCALE_LOGIC = (function () {
     return Array.isArray(value) ? value.map(one).join(sep || '/') : one(value);
   }
 
+  /** SPSS 与 codebook 共用原始编码映射：医学分值不替代答案编码。 */
+  function spssCoding(item) {
+    const numeric = function (v) {
+      return (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) && Number.isFinite(Number(v));
+    };
+    const options = (item.options || []).map(function (o) {
+      return { value: o.value, label: o.label, missing: o.na === true || o.score === null, code: '' };
+    });
+    // 先保留所有数值编码，再按选项定义顺序给字符串分类分配不冲突的整数。
+    const used = new Set(options.filter(function (o) { return numeric(o.value); }).map(function (o) { return Number(o.value); }));
+    const byValue = new Map();
+    let next = 1;
+    options.forEach(function (o) {
+      if (!o.missing) {
+        if (numeric(o.value)) o.code = o.value;
+        else if (typeof o.value === 'string' && o.value.trim() !== '') {
+          if (byValue.has(o.value)) o.code = byValue.get(o.value).code;
+          else {
+            while (used.has(next)) next += 1;
+            o.code = next;
+            used.add(next);
+            next += 1;
+          }
+        }
+      }
+      byValue.set(String(o.value), o);
+    });
+    return {
+      encode: function (value) {
+        if (typeof value !== 'number' && typeof value !== 'string') return '';
+        if (typeof value === 'string' && value.trim() === '') return '';
+        const option = byValue.get(String(value));
+        if (option && option.missing) return '';
+        if (item.type === 'number' || item.type === 'slider') return numeric(value) ? value : '';
+        return option ? (numeric(value) ? value : option.code) : '';
+      },
+      checkbox: function (value, optionValue) {
+        const option = byValue.get(String(optionValue));
+        if (!option || option.missing || value === undefined || value === null || value === '') return '';
+        const list = Array.isArray(value) ? value : [value];
+        if (!list.length) return '';
+        const valid = list.every(function (v) {
+          if (typeof v !== 'number' && typeof v !== 'string') return false;
+          const hit = byValue.get(String(v));
+          return hit && !hit.missing && hit.code !== '';
+        });
+        if (!valid || new Set(list.map(String)).size !== list.length) return '';
+        return list.map(String).indexOf(String(optionValue)) >= 0 ? 1 : 0;
+      },
+      codebook: function (optionValue) {
+        if (item.type === 'checkbox') {
+          const o = byValue.get(String(optionValue));
+          return !o || o.missing ? '缺失选项=空白；整题缺失/无效时所有拆分列空白' :
+            '选中"' + o.label + '"=1，否则=0；整题缺失/无效时所有拆分列空白';
+        }
+        return options.map(function (o) { return o.label + '=' + (o.code === '' ? '缺失(空白)' : o.code); }).join('；') || '数值；缺失/无效=空白';
+      },
+    };
+  }
+
   /** 商业授权量表的占位文字标记；题干或选项里含这段文字即视为「正文待填」 */
   const PENDING_MARK = '请按授权版本填入';
 
@@ -140,6 +200,7 @@ const MEDSCALE_LOGIC = (function () {
     countRules: countRules,
     toList: toList,
     answerLabel: answerLabel,
+    spssCoding: spssCoding,
     PENDING_MARK: PENDING_MARK,
     pendingItems: pendingItems,
     settlePending: settlePending,

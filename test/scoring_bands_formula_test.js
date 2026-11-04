@@ -161,7 +161,39 @@ t.ok(S.scoreResponse(QD, qdAll1).total === 0, '11 项全部「没有困难」= 0
 t.ok(S.scoreResponse(QD, qdAll5).total === 100, '11 项全部「极严重」= 100 分');
 t.ok(S.scoreResponse(QD, qdAll2).total === 25, '均分 2 →（2-1)/4×100 = 25', S.scoreResponse(QD, qdAll2));
 const qdMissing = Object.assign({}, qdAll2); delete qdMissing.d11;
-t.ok(S.scoreResponse(QD, qdMissing).total === null && S.scoreResponse(QD, qdMissing).invalid === true,
-  'QuickDASH 要求 11 项全部作答，缺项不折算');
+t.ok(S.scoreResponse(QD, qdMissing).total === 25, 'QuickDASH允许缺1项，按10个有效项折算');
+const qdMissingTwo = Object.assign({}, qdMissing); delete qdMissingTwo.d10;
+t.ok(S.scoreResponse(QD, qdMissingTwo).total === null, 'QuickDASH缺2项不产出分数');
+t.ok(S.scoreResponse(QD, Object.assign({}, qdAll1, { d1: 2 })).total === 2.27,
+  'QuickDASH保留百分分精度：[(12/11)-1]×25 = 2.27（平台两位小数约定）');
+t.ok(S.scoreResponse(QD, Object.assign({}, qdAll2, { d11: 'bad' })).total === null,
+  'QuickDASH非法作答不能冒充允许的漏答');
+const actualQd = require('../lib/scales.js').TEMPLATES.find(function (s) { return s.code === 'quickdash'; });
+t.ok(S.validateAnswers(actualQd, qdMissing).length === 0, 'QuickDASH10项作答可通过提交校验');
+t.ok(S.validateAnswers(actualQd, qdMissingTwo).length > 0, 'QuickDASH不足10项在提交前拦截');
+
+console.log('\n【11】WFNS原表未覆盖组合不猜测级别');
+const wfns = require('../lib/scales.js').TEMPLATES.find(function (s) { return s.code === 'wfns-sah'; });
+const uncovered = S.scoreResponse(wfns, { gcs: 15, motor: 1 });
+t.ok(uncovered.total === null && uncovered.invalidReason === 'unsupported_combination',
+  'GCS15伴运动缺损不能直接标Ⅰ级', uncovered);
+t.ok(uncovered.flags.length > 0 && /临床复核/.test(uncovered.flags[0].text), '未覆盖组合提示临床复核');
+
+console.log('\n【12】IPAQ新增规程计分，不改变遗留原始公式');
+const cleanedIpaq = Object.assign({}, IPAQ, { scoring: { method: 'formula', formula: 'ipaq-met-cleaned', cutoffs: [] } });
+t.ok(S.scoreResponse(cleanedIpaq, ipaqMixed).total === 2013, '有效IPAQ正常输入仍得到2013');
+const shortBout = Object.assign({}, ipaqMixed, { v_days: 7, v_min: 9 });
+t.ok(S.scoreResponse(cleanedIpaq, shortBout).total === 1293, '不足10分钟的活动整类置零：600+693=1293');
+const longBout = { v_days: 3, v_min: 200, m_days: 0, m_min: 0, w_days: 0, w_min: 0 };
+const cleanedLong = S.scoreResponse(cleanedIpaq, longBout);
+t.ok(cleanedLong.total === 4320, '超过180分钟按180清洗：3×180×8=4320');
+t.ok(cleanedLong.flags.length > 0 && /180/.test(cleanedLong.flags[0].text), '截断明确说明，原始作答不丢失');
+t.ok(S.scoreResponse(IPAQ, longBout).total === 4800, '旧ipaq-met仍保留原始计算，历史定义不静默变更');
+const extreme = { v_days: 1, v_min: 400, m_days: 1, m_min: 400, w_days: 1, w_min: 200 };
+const extremeResult = S.scoreResponse(cleanedIpaq, extreme);
+t.ok(extremeResult.total === null && extremeResult.invalidReason === 'invalid_activity_time',
+  '原始日活动合计超过960先排除，不先截断以掩盖异常', extremeResult);
+t.ok(S.scoreResponse(cleanedIpaq, Object.assign({}, ipaqMixed, { w_min: undefined })).total === null,
+  'IPAQ真实缺失不得当成0');
 
 process.exit(t.done('分档与公式计分'));

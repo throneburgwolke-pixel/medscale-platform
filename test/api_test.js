@@ -273,6 +273,32 @@ function request(method, url, body, headers) {
   r = await request('GET', '/api/surveys/2/export.csv');
   ok(r.status === 200, 'CSV（文字版）导出仍正常');
 
+  console.log('\n【11b】SPSS 分类原编码、codebook 和多选缺失');
+  const exportScaleId = dbm.insertScale({ title: '编码回归', definition: { items: [
+    { id: 'sex', no: 1, text: '分类', type: 'radio', required: false, options: [
+      { value: 'F', label: '女', score: 99 }, { value: 1, label: '原值' }, { value: 'M', label: '男' },
+      { value: '02', label: '数字串' }, { value: 'na', label: '不适用', na: true }, { value: 'un', label: '未知', score: null },
+    ] },
+    { id: 'multi', no: 2, text: '多选', type: 'checkbox', required: false, options: [{ value: 'A', label: '甲' }, { value: 'B', label: '乙' }] },
+  ], scoring: { method: 'none' } } });
+  const exportScale = dbm.getScale(exportScaleId);
+  const exportSurvey = dbm.createSurvey(exportScaleId, { name: '编码回归' });
+  const exportAnswers = [
+    { sex: 'F' }, { sex: 'M', multi: null }, { sex: 'na', multi: [] }, { sex: 'un', multi: ['A'] },
+    { sex: '02', multi: ['B'] }, { sex: 'alien', multi: ['alien'] }, { sex: 1, multi: ['A', 'B'] },
+  ];
+  exportAnswers.forEach(function (answers) { dbm.saveResponse(exportSurvey, exportScale, { answers: answers }); });
+  const numericExport = await request('GET', '/api/surveys/' + exportSurvey.id + '/export-spss.csv');
+  const cells = numericExport.text.trim().split('\r\n').slice(1).map(function (line) { return line.split(',').slice(4, 7); });
+  ok(JSON.stringify(cells) === JSON.stringify([['3', '', ''], ['4', '', ''], ['', '', ''], ['', '1', '0'], ['02', '0', '1'], ['', '', ''], ['1', '1', '1']]),
+    'Node SPSS 原编码/缺失与真实多选0/1正确', cells);
+  ok(!numericExport.text.includes('NaN'), 'Node 未输出NaN');
+  const codebook = await request('GET', '/api/surveys/' + exportSurvey.id + '/codebook.csv');
+  ok(codebook.text.includes('女=3；原值=1；男=4；数字串=02；不适用=缺失(空白)；未知=缺失(空白)') && /整题缺失.*空白/.test(codebook.text), 'Node codebook 共享映射并明确缺失', codebook.text);
+  const textExport = await request('GET', '/api/surveys/' + exportSurvey.id + '/export.csv');
+  ok(textExport.text.includes('女') && textExport.text.includes('不适用') && textExport.text.includes('甲|乙'), '普通文字CSV仍保留选项文案');
+  ok(JSON.stringify(dbm.listResponses(exportSurvey.id).map(function (response) { return response.answers; })) === JSON.stringify(exportAnswers), 'SPSS导出不修改原始答案');
+
   r = await request('POST', '/api/password', { oldPassword: INIT_PW, newPassword: 'newpass888' });
   ok(r.status === 200, '修改密码成功');
   r = await request('GET', '/api/scales');

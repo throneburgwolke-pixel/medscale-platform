@@ -2035,11 +2035,12 @@ function itemEditor(it, i) {
     '<textarea data-f="text" aria-label="题干文字" placeholder="请输入题干">' + esc(it.text) + '</textarea>' +
     (hasOpts ? '<div class="mt8"><div class="muted small mb8">选项与分值（“分值”用于自动计分；勾选“不适用”的选项不参与计分，也不计入分母）</div>' +
       '<div data-opts>' + (it.options || []).map(function (o, j) {
-        const hasScore = o.score !== undefined;
+        const separateScore = o.score !== undefined || typeof o.value === 'string';
+        const scoreDisabled = o.na === true || o.score === null;
         return '<div class="opt-row"><input type="text" class="lab" aria-label="选项文字" data-opt-label="' + j + '" value="' + esc(o.label) + '" placeholder="选项文字">' +
-          (hasScore ? '<span class="small muted">编码：' + esc(o.value) + '</span>' : '') +
-          '<input type="number" class="val" step="0.5" aria-label="选项分值" data-opt-' + (hasScore ? 'score' : 'value') + '="' + j +
-            '" value="' + esc(hasScore ? (o.score === null ? '' : o.score) : o.value) + '" placeholder="分值"' + (hasScore && o.score === null ? ' disabled' : '') + '>' +
+          (separateScore ? '<span class="small muted">编码：' + esc(o.value) + '</span>' : '') +
+          '<input type="number" class="val" step="0.5" aria-label="选项分值" data-opt-' + (separateScore ? 'score' : 'value') + '="' + j +
+            '" value="' + esc(separateScore ? (o.score == null ? '' : o.score) : o.value) + '" placeholder="分值"' + (scoreDisabled ? ' disabled' : '') + '>' +
           '<label class="small row nowrap" style="gap:3px" title="选中后该题不计分、也不进总分与维度分的分母（如 ODI 的“不适用”）">' +
             '<input type="checkbox" style="width:auto" data-opt-na="' + j + '"' + (o.na === true ? ' checked' : '') + ' aria-label="标记为不适用">不适用</label>' +
           '<button class="btn small danger" data-opt-del="' + j + '" aria-label="删除该选项">×</button></div>';
@@ -2263,15 +2264,23 @@ function applyOptionField(el) {
   const card = el.closest('.item-editor');
   const it = draft.definition.items[Number(card.dataset.idx)];
   if (el.dataset.optLabel !== undefined) it.options[Number(el.dataset.optLabel)].label = el.value;
-  if (el.dataset.optValue !== undefined) it.options[Number(el.dataset.optValue)].value = el.value === '' ? 0 : Number(el.value);
+  if (el.dataset.optValue !== undefined) {
+    const option = it.options[Number(el.dataset.optValue)];
+    // 不能只依赖 disabled：程序派发事件也必须遵守只读编码与不可计分语义。
+    if (typeof option.value !== 'string' && option.score === undefined && option.na !== true) {
+      option.value = el.value === '' ? undefined : Number(el.value);
+    }
+  }
   if (el.dataset.optScore !== undefined) {
     const option = it.options[Number(el.dataset.optScore)];
-    if (option.score !== null) option.score = el.value === '' ? 0 : Number(el.value);
+    if (option.score !== null && option.na !== true) option.score = el.value === '' ? 0 : Number(el.value);
   }
   if (el.dataset.optNa !== undefined) {
     const option = it.options[Number(el.dataset.optNa)];
     if (el.checked) option.na = true;
     else delete option.na;
+    const scoreInput = el.closest('.opt-row').querySelector('input[aria-label="选项分值"]');
+    if (scoreInput) scoreInput.disabled = option.na === true || option.score === null;
   }
   scheduleEditorDraft();
 }
@@ -2351,8 +2360,11 @@ function itemAction(card, act) {
   } else if (act === 'add-opt') {
     const it = items[idx];
     it.options = it.options || [];
-    const lastVal = it.options.length ? Number(it.options[it.options.length - 1].value) : 0;
-    it.options.push({ label: '', value: lastVal + 1 });
+    const used = new Set(it.options.map(function (o) { return String(o.value); }));
+    // 从空闲正整数中取编码，不依赖顺序、末尾字符串或最大值的浮点精度。
+    let value = 1;
+    while (used.has(String(value))) value += 1;
+    it.options.push({ label: '', value: value });
   }
   items.forEach(function (it, i) { it.no = i + 1; });
   renderBuilder();
@@ -2382,10 +2394,32 @@ function syncBasicFields() {
   if (sc.multiplier === 1) delete sc.multiplier;
 }
 
+/** 编码按填写页的 String(value) 身份比较；只报错，不重编码已有选项。 */
+function optionIdentityError(definition) {
+  const items = definition.items || [];
+  for (let i = 0; i < items.length; i += 1) {
+    const options = items[i].options || [];
+    const used = new Set();
+    for (let j = 0; j < options.length; j += 1) {
+      const value = options[j] && options[j].value;
+      if (!((typeof value === 'string' && value.trim() !== '') ||
+        (typeof value === 'number' && Number.isFinite(value)))) {
+        return '第 ' + (i + 1) + ' 题的选项编码无效（须为非空字符串或有限数值）';
+      }
+      const key = String(value);
+      if (used.has(key)) return '第 ' + (i + 1) + ' 题的选项编码重复，请手动修正后再保存或发布';
+      used.add(key);
+    }
+  }
+  return '';
+}
+
 async function saveBuilder(thenPublish, previewOnly) {
   syncBasicFields();
 
   // 校验
+  const identityError = optionIdentityError(draft.definition);
+  if (identityError) return toast(identityError, 'err');
   if (!draft.title) return toast('请填写量表名称', 'err');
   const empty = draft.definition.items.findIndex(function (it) { return !String(it.text || '').trim(); });
   if (empty >= 0) return toast('第 ' + (empty + 1) + ' 题的题干为空', 'err');
@@ -2489,6 +2523,12 @@ async function openFillPreview(scaleLike) {
 /* ================= 发布对话框 ================= */
 async function openPublishDialog(scaleId) {
   const s = await api('/scales/' + scaleId);
+  const identityError = optionIdentityError(s.definition);
+  if (identityError) {
+    toast(identityError, 'err');
+    go('/builder/' + scaleId);
+    return;
+  }
   const pend = SHARED.pendingItems(s.definition);
   if (pend.length) {
     toast('还有 ' + pend.length + ' 道题待填入授权文本，请先复制为「我的量表」并在编辑器中填写后再发布', 'err');

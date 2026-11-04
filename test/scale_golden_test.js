@@ -40,18 +40,18 @@ const CASES = [
     note: 'Merkel 1997：五项 2 分 = 10 分，7-10 为重度' },
   { code: 'asa-ps', answers: function () { return { asa: 3, asa_e: 1 }; }, total: 3, cut: 'ASA Ⅲ 级',
     note: 'ASA 2020 修订版：急诊标注 E 不改变分级分值' },
-  { code: 'phq-a', answers: function (s) { return allAs(s, 3); }, total: 27, cut: '重度抑郁症状',
+  { code: 'phq-a', answers: function (s) { const a = allAs(s, 3); s.items.filter(function (it) { return it.exclude; }).forEach(function (it) { a[it.id] = 0; }); return a; }, total: 27, cut: '重度抑郁症状',
     note: 'PHQ-A：9 项满分 27，功能受损提问（第10题）不计入总分' },
   { code: 'phq-a', answers: function (s) {
       const a = {}; s.items.forEach(function (it) { a[it.id] = 0; }); a.pa9 = 1; return a;
     }, total: 1, cut: '无或极轻微抑郁症状', note: '总分虽低，第 9 题阳性必须单独预警' },
   { code: 'ipaq-sf', answers: function () {
       return { v_days: 3, v_min: 30, m_days: 5, m_min: 30, w_days: 7, w_min: 30, s_days: 7, s_min: 300 };
-    }, total: 2013, cut: '活动量中等',
-    note: 'IPAQ 计分规程：8×90 + 4×150 + 3.3×210 = 2013 MET-min/周，久坐不计入' },
+    }, total: 2013, cut: null,
+    note: 'IPAQ清洗后连续MET：720+600+693=2013，未实现完整分类不作三档判断' },
   { code: 'ipaq-sf', answers: function () {
       return { v_days: 0, v_min: 0, m_days: 0, m_min: 0, w_days: 0, w_min: 0, s_days: 7, s_min: 600 };
-    }, total: 0, cut: '活动量偏低（<600 MET-min/周）', note: '只久坐不活动 → 0 MET-min/周' },
+    }, total: 0, cut: null, note: '只久坐不活动 → 0 MET-min/周，不自动进行IPAQ类别判断' },
   { code: 'quickdash', answers: function (s) { return allAs(s, 1); }, total: 0,
     note: 'QuickDASH 用户手册：均分 1 → [(1-1)/4]×100 = 0' },
   { code: 'berg', answers: function (s) { return allAs(s, 4); }, total: 56, cut: '跌倒风险低（41-56）',
@@ -64,11 +64,11 @@ const CASES = [
   { code: 'berg', answers: function (s) {
       const a = {}; s.items.forEach(function (it, i) { a[it.id] = i < 10 ? 4 : 0; }); return a;
     }, total: 40, cut: '跌倒风险中等（21-40）', note: '40 分仍落在 21-40 档，不误判为低风险' },
-  { code: 'apgar', answers: function (s) { return allAs(s, 2); }, total: 20,
-    note: 'Apgar：两个时点各 5 项满分 = 各 10 分，合计 20（总分不用于判读）' },
+  { code: 'apgar', answers: function (s) { return allAs(s, 2); }, total: null,
+    note: 'Apgar：两个时点分别记录，不产生合计总分' },
   { code: 'apgar', answers: function (s) {
       const a = {}; s.items.forEach(function (it) { a[it.id] = it.id.indexOf('t1_') === 0 ? 2 : 0; }); return a;
-    }, total: 10, note: '1 分钟 10 分、5 分钟 0 分 → 合计 10，分量表各自可读' },
+    }, total: null, note: '1 分钟10分、5分钟0分，两个分量表保留，不合计' },
   { code: 'centor', answers: function (s) { return allAs(s, 1); }, total: 5, cut: '可能性较高（≥4 分）',
     note: 'McIsaac：4 项体征全阳性 + 3-14 岁（+1）= 5 分' },
   { code: 'centor', answers: function (s) {
@@ -290,6 +290,20 @@ const rApgar = scoreResponse(T('apgar'), (function () {
 })());
 t.ok(rApgar.dimensions.apgar1.score === 10 && rApgar.dimensions.apgar5.score === 5,
   'Apgar 按 1 分钟 / 5 分钟分别给分量表分，不混成一个分数', rApgar.dimensions);
+t.ok(rApgar.total === null, 'Apgar不合计两个时点为一个0-20总分', rApgar.total);
+const hadsBorderline = allAs(T('hads'), 0);
+Object.assign(hadsBorderline, { hads1: 3, hads3: 3, hads5: 2, hads2: 3, hads4: 3, hads6: 3, hads8: 2 });
+const hadsBorderResult = scoreResponse(T('hads'), hadsBorderline);
+t.ok(hadsBorderResult.dimensions.anxiety.score === 8 &&
+  hadsBorderResult.dimensions.anxiety.cut && hadsBorderResult.dimensions.anxiety.cut.label === '边缘范围',
+  'HADS焦虑8分独立判为边缘范围', hadsBorderResult.dimensions.anxiety);
+t.ok(hadsBorderResult.dimensions.depression.score === 11 &&
+  hadsBorderResult.dimensions.depression.cut && hadsBorderResult.dimensions.depression.cut.label === '异常范围',
+  'HADS抑郁11分独立判为异常范围', hadsBorderResult.dimensions.depression);
+const allNaOdi = allAs(T('odi'), 'na');
+const allNaResult = scoreResponse(T('odi'), allNaOdi);
+t.ok(allNaResult.total === null && allNaResult.invalid === true && allNaResult.invalidReason === 'insufficient_items',
+  '全部不适用明确标记计分无效，而不是看似成功', allNaResult);
 
 const bergTpl = T('berg');
 t.ok(bergTpl.items.length === 14 && bergTpl.items.every(function (it) { return it.options.length === 5; }),
@@ -326,15 +340,21 @@ t.ok(rW.dimensions.pain.score === 20 && rW.dimensions.stiffness.score === 8 && r
   'WOMAC 维度满分：疼痛 20 / 僵硬 8 / 功能 68', rW.dimensions);
 
 const ipaq = T('ipaq-sf');
-t.ok(ipaq.items.filter(function (it) { return it.id.indexOf('s_') === 0; }).length === 2 &&
-  ipaq.scoring.formula === 'ipaq-met', 'IPAQ 久坐两项单独记录，总分走 MET 公式');
+t.ok(ipaq.items.length === 7 && ipaq.items.filter(function (it) { return it.id.indexOf('s_') === 0; }).length === 1 &&
+  ipaq.scoring.formula === 'ipaq-met-cleaned', 'IPAQ按标准7题结构记录，久坐仅每日分钟，采用规程清洗');
+t.ok(scoreResponse(ipaq, { v_days: 7, v_min: 9, m_days: 0, m_min: 0, w_days: 0, w_min: 0, s_min: 60 }).total === 0,
+  '实际IPAQ模板过滤不足10分钟活动');
+t.ok(!(ipaq.scoring.cutoffs || []).length, '未实现完整活动天数条件时不冒充IPAQ低中高分类');
 const sitOnly = { v_days: 0, v_min: 0, m_days: 0, m_min: 0, w_days: 0, w_min: 0, s_days: 7, s_min: 600 };
 t.ok(validateAnswers(ipaq, sitOnly).length === 0, 'IPAQ 只填久坐不活动的合法答卷能通过校验');
 t.ok(validateAnswers(ipaq, { v_days: 8, v_min: 30, m_days: 5, m_min: 30, w_days: 7, w_min: 30, s_days: 7, s_min: 300 }).length > 0,
   'IPAQ 天数超过 7 会被范围校验拦下');
 
 const phqa = T('phq-a');
-const phqaAll = {}; phqa.items.forEach(function (it) { phqaAll[it.id] = 3; });
+t.ok(phqa.licenseTier === 'commercial' && phqa.items.length === 13 &&
+  require('../lib/logic.js').pendingItems(phqa).length === 13,
+  'PHQ-A改编版许可未核实，9+4完整结构禁止发布而不冒用Pfizer许可');
+const phqaAll = {}; phqa.items.forEach(function (it) { phqaAll[it.id] = it.exclude ? 0 : 3; });
 t.ok(scoreResponse(phqa, phqaAll).total === 27, 'PHQ-A 第 10 项功能受损提问不计入 0-27 总分', scoreResponse(phqa, phqaAll).total);
 const phqaRisky = {}; phqa.items.forEach(function (it) { phqaRisky[it.id] = 0; }); phqaRisky.pa9 = 1;
 const rPhqa = scoreResponse(phqa, phqaRisky);

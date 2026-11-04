@@ -105,8 +105,8 @@ function hasLabel(ctrl, d) {
     scale: {
       title: 'A11Y 随访问卷', code: 'a11y-own', category: '未分类',
       definition: { items: [
-        { id: 'q1', type: 'single', label: '最近一周睡眠如何', options: [{ label: '好', score: 0 }, { label: '差', score: 1 }] },
-        { id: 'q2', type: 'text', label: '补充说明' },
+        { id: 'q1', no: 1, type: 'radio', text: '最近一周睡眠如何', options: [{ label: '好', value: 0, score: 0 }, { label: '差', value: 1, score: 1 }] },
+        { id: 'q2', no: 2, type: 'text', text: '补充说明', required: false },
       ] },
     },
   });

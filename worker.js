@@ -8,9 +8,9 @@
 import { createD1Backend } from './lib/db-d1.js';
 import qr from './lib/qr.js';
 import { scoreResponse, validateAnswers } from './lib/scoring.js';
-import { computeVisibility, answerLabel, pendingItems } from './lib/logic.js';
+import { computeVisibility, answerLabel, pendingItems, spssCoding } from './lib/logic.js';
 import { buildReport } from './lib/report.js';
-import { buildFollowup } from './lib/followup.js';
+import { buildFollowup, excludeConflicts } from './lib/followup.js';
 import { parseFileEdge } from './lib/parse-edge.js';
 import { CATALOG, CATEGORIES, LICENSED_NOTES } from './lib/scales.js';
 import * as nodeCrypto from 'node:crypto';
@@ -414,21 +414,30 @@ async function api(method, path, url, request, env) {
     const b = await readJson(request);
     const scale = await dbm.getScale(survey.scaleId);
     if (scale.consentOn && b.consent !== true) return json(400, { error: '请先阅读并同意知情同意说明' });
-    if (survey.subjectMode === 'self' && b.subjectId) {
-      const ex = await dbm.findResponseBySubject(survey.id, b.subjectId);
+    const subjectId = b.subjectId ? String(b.subjectId).trim().slice(0, 40) || null : null;
+    if (subjectId) {
+      const ex = await dbm.findResponseBySubject(survey.id, subjectId);
       if (ex) return json(409, { error: '该受试者编号已提交过本次时点答卷，请勿重复提交。' });
     }
     const errors = validateAnswers(scale.definition, b.answers || {});
     if (errors.length) return json(400, { error: '有题目未作答', details: errors });
-    const r = await dbm.saveResponse(survey, scale, { answers: b.answers, pid: b.pid, durationSec: b.durationSec,
-      consent: b.consent === true, meta: { ip: survey.collectMeta ? ip : '', ua: survey.collectMeta ? (request.headers.get('user-agent') || '') : '' },
-      startedAt: b.startedAt, subjectId: b.subjectId });
+    let r;
+    try {
+      r = await dbm.saveResponse(survey, scale, { answers: b.answers, pid: b.pid, durationSec: b.durationSec,
+        consent: b.consent === true, meta: { ip: survey.collectMeta ? ip : '', ua: survey.collectMeta ? (request.headers.get('user-agent') || '') : '' },
+        startedAt: b.startedAt, subjectId: subjectId });
+    } catch (e) {
+      if (e.code === 'DUPLICATE_SUBJECT') return json(409, { error: e.message });
+      throw e;
+    }
     // 字段名与 Node 版保持一致：填写页读 result，Worker 原先返回 scores，线上「显示结果」一直没生效
     const payload = { ok: true, pid: r.pid, subjectId: r.subjectId };
     if ((survey.showResult || (scale.definition && scale.definition.rater === 'clinician')) && r.scores) {
       payload.result = {
         total: r.scores.total,
         cut: r.scores.cut,
+        invalid: !!r.scores.invalid,
+        invalidReason: r.scores.invalidReason || null,
         dimensions: r.scores.dimensions,
         flags: r.scores.flags,
         completeness: r.scores.completeness,
@@ -554,9 +563,9 @@ async function api(method, path, url, request, env) {
     const specs = [];
     items.forEach(function (it) {
       if (it.type === 'checkbox') {
-        (it.options || []).forEach(function (o, i) { header.push('Q' + it.no + '_' + (i + 1)); specs.push({ kind: 'multi', itemId: it.id, value: o.value }); });
+        (it.options || []).forEach(function (o, i) { header.push('Q' + it.no + '_' + (i + 1)); specs.push({ kind: 'multi', itemId: it.id, value: o.value, coding: spssCoding(it) }); });
       } else if (it.type === 'radio' || it.type === 'select' || it.type === 'number' || it.type === 'slider') {
-        header.push('Q' + it.no); specs.push({ kind: 'num', itemId: it.id });
+        header.push('Q' + it.no); specs.push({ kind: 'num', itemId: it.id, coding: spssCoding(it) });
       } else { header.push('Q' + it.no + '_TXT'); specs.push({ kind: 'text', itemId: it.id }); }
     });
     dims.forEach(function (d) { header.push('DIM_' + d.id.toUpperCase()); specs.push({ kind: 'dim', dimId: d.id }); });
@@ -569,8 +578,8 @@ async function api(method, path, url, request, env) {
       specs.forEach(function (sp) {
         const sc = r.scores || {};
         const ans = r.answers || {};
-        if (sp.kind === 'num') { const val = ans[sp.itemId]; row.push(val === undefined || val === null || val === '' ? '' : Number(val)); }
-        else if (sp.kind === 'multi') { const arr = ans[sp.itemId]; const list = Array.isArray(arr) ? arr.map(String) : (arr === undefined || arr === null || arr === '' ? [] : [String(arr)]); row.push(list.indexOf(String(sp.value)) >= 0 ? 1 : 0); }
+        if (sp.kind === 'num') { row.push(sp.coding.encode(ans[sp.itemId])); }
+        else if (sp.kind === 'multi') { row.push(sp.coding.checkbox(ans[sp.itemId], sp.value)); }
         else if (sp.kind === 'text') { const val = ans[sp.itemId]; row.push(val === undefined || val === null ? '' : val); }
         else if (sp.kind === 'dim') { const d = sc.dimensions && sc.dimensions[sp.dimId]; row.push(d && d.score !== null && d.score !== undefined ? d.score : ''); }
         else if (sp.kind === 'total') { row.push(sc.total === null || sc.total === undefined ? '' : sc.total); }
@@ -591,10 +600,10 @@ async function api(method, path, url, request, env) {
     (def.items || []).forEach(function (it) {
       if (it.type === 'checkbox') {
         (it.options || []).forEach(function (o, i) {
-          rows.push(['Q' + it.no + '_' + (i + 1), '二分类(0/1)', it.text, '选中"' + o.label + '"=1，否则=0']);
+          rows.push(['Q' + it.no + '_' + (i + 1), '二分类(0/1)', it.text, spssCoding(it).codebook(o.value)]);
         });
       } else if (['radio', 'select', 'number', 'slider'].indexOf(it.type) >= 0) {
-        const map = (it.options || []).map(function (o) { return o.label + '=' + o.value; }).join('；');
+        const map = spssCoding(it).codebook();
         rows.push(['Q' + it.no, it.type === 'number' || it.type === 'slider' ? '连续变量' : '分类/等级变量', it.text, map || '数值']);
       } else {
         rows.push(['Q' + it.no + '_TXT', '文本', it.text, '']);
@@ -670,9 +679,9 @@ async function api(method, path, url, request, env) {
     });
     if (waves.length > 1) { for (let i = 0; i + 1 < waves.length; i += 1) header.push('DELTA_W' + waves[i].wave + 'W' + waves[i + 1].wave); }
     const rows = [header];
-    const subj = {};
+    const subj = Object.create(null);
     waves.forEach(function (w) {
-      w.responses.forEach(function (r) {
+      excludeConflicts(w.responses).responses.forEach(function (r) {
         const sid = r.subjectId || ('UNLINKED_' + r.pid);
         if (!subj[sid]) subj[sid] = {};
         subj[sid][w.id] = r;

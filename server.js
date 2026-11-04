@@ -13,8 +13,8 @@ const cluster = require('node:cluster');
 const dbm = require('./lib/db.js');
 const { validateAnswers, rawValue } = require('./lib/scoring.js');
 const { buildReport } = require('./lib/report.js');
-const { buildFollowup } = require('./lib/followup.js');
-const { computeVisibility, answerLabel, pendingItems } = require('./lib/logic.js');
+const { buildFollowup, excludeConflicts } = require('./lib/followup.js');
+const { computeVisibility, answerLabel, pendingItems, spssCoding } = require('./lib/logic.js');
 const importer = require('./lib/parse.js');
 const qr = require('./lib/qr.js');
 const { LICENSED_NOTES, CATALOG, CATEGORIES } = require('./lib/scales.js');
@@ -1044,7 +1044,7 @@ route('GET', '/api/surveys/:id/export.json', function (ctx) {
   });
 });
 
-/** SPSS/R 数值编码版导出：选择题导出为分值（多选拆分为 0/1 虚拟变量） */
+/** SPSS/R 数值编码版导出：保留答案编码（多选拆分为 0/1，整题缺失为空白） */
 route('GET', '/api/surveys/:id/export-spss.csv', function (ctx) {
   const s = dbm.getSurvey(Number(ctx.params.id));
   if (!s) return sendJson(ctx.res, 404, { error: '调查不存在' });
@@ -1061,11 +1061,11 @@ route('GET', '/api/surveys/:id/export-spss.csv', function (ctx) {
       (it.options || []).forEach(function (o, i) {
         const name = 'Q' + it.no + '_' + (i + 1);
         header.push(name);
-        specs.push({ kind: 'multi', itemId: it.id, value: o.value });
+        specs.push({ kind: 'multi', itemId: it.id, value: o.value, coding: spssCoding(it) });
       });
     } else if (it.type === 'radio' || it.type === 'select' || it.type === 'number' || it.type === 'slider') {
       header.push('Q' + it.no);
-      specs.push({ kind: 'num', itemId: it.id });
+      specs.push({ kind: 'num', itemId: it.id, coding: spssCoding(it) });
     } else {
       header.push('Q' + it.no + '_TXT');
       specs.push({ kind: 'text', itemId: it.id });
@@ -1087,12 +1087,9 @@ route('GET', '/api/surveys/:id/export-spss.csv', function (ctx) {
     specs.forEach(function (sp) {
       const sc = r.scores || {};
       if (sp.kind === 'num') {
-        const v = r.answers[sp.itemId];
-        row.push(v === undefined || v === null || v === '' ? '' : Number(v));
+        row.push(sp.coding.encode((r.answers || {})[sp.itemId]));
       } else if (sp.kind === 'multi') {
-        const arr = r.answers[sp.itemId];
-        const list = Array.isArray(arr) ? arr.map(String) : (arr === undefined || arr === null || arr === '' ? [] : [String(arr)]);
-        row.push(list.indexOf(String(sp.value)) >= 0 ? 1 : 0);
+        row.push(sp.coding.checkbox((r.answers || {})[sp.itemId], sp.value));
       } else if (sp.kind === 'text') {
         const v = r.answers[sp.itemId];
         row.push(v === undefined || v === null ? '' : v);
@@ -1129,10 +1126,10 @@ route('GET', '/api/surveys/:id/codebook.csv', function (ctx) {
   scale.definition.items.forEach(function (it) {
     if (it.type === 'checkbox') {
       (it.options || []).forEach(function (o, i) {
-        rows.push(['Q' + it.no + '_' + (i + 1), '二分类(0/1)', it.text, '选中"' + o.label + '"=1，否则=0']);
+        rows.push(['Q' + it.no + '_' + (i + 1), '二分类(0/1)', it.text, spssCoding(it).codebook(o.value)]);
       });
     } else if (['radio', 'select', 'number', 'slider'].indexOf(it.type) >= 0) {
-      const map = (it.options || []).map(function (o) { return o.label + '=' + o.value; }).join('；');
+      const map = spssCoding(it).codebook();
       rows.push(['Q' + it.no, it.type === 'number' || it.type === 'slider' ? '连续变量' : '分类/等级变量', it.text, map || '数值']);
     } else {
       rows.push(['Q' + it.no + '_TXT', '文本', it.text, '']);
@@ -1202,6 +1199,8 @@ route('POST', '/api/join/:token', async function (ctx) {
       if (s.subjectMode === 'auto') subjectId = dbm.nextSubjectCode(study.id);
       else return sendJson(ctx.res, 400, { error: '请填写您的随访编号（由研究方提供）' });
     }
+  }
+  if (subjectId) {
     const dup = dbm.findResponseBySubject(s.id, subjectId);
     if (dup) {
       return sendJson(ctx.res, 400, {
@@ -1212,18 +1211,24 @@ route('POST', '/api/join/:token', async function (ctx) {
   const errors = validateAnswers(scale.definition, body.answers || {});
   if (errors.length) return sendJson(ctx.res, 400, { error: '有题目未作答', details: errors });
 
-  const saved = dbm.saveResponse(s, scale, {
-    answers: body.answers,
-    consent: body.consent === true,
-    durationSec: body.durationSec ? Math.round(Number(body.durationSec)) : null,
-    pid: body.pid || null,
-    startedAt: body.startedAt || null,
-    subjectId: subjectId,
-    meta: {
-      ip: clientIp(ctx.req, s),
-      ua: s.collectMeta ? String(ctx.req.headers['user-agent'] || '').slice(0, 180) : '',
-    },
-  });
+  let saved;
+  try {
+    saved = dbm.saveResponse(s, scale, {
+      answers: body.answers,
+      consent: body.consent === true,
+      durationSec: body.durationSec ? Math.round(Number(body.durationSec)) : null,
+      pid: body.pid || null,
+      startedAt: body.startedAt || null,
+      subjectId: subjectId,
+      meta: {
+        ip: clientIp(ctx.req, s),
+        ua: s.collectMeta ? String(ctx.req.headers['user-agent'] || '').slice(0, 180) : '',
+      },
+    });
+  } catch (e) {
+    if (e.code === 'DUPLICATE_SUBJECT') return sendJson(ctx.res, 400, { error: e.message });
+    throw e;
+  }
   dbm.log('response_submit', s.name + ' #' + saved.id + ' total=' + (saved.scores && saved.scores.total));
 
   const payload = { ok: true, pid: saved.pid, submittedAt: new Date().toISOString() };
@@ -1232,6 +1237,8 @@ route('POST', '/api/join/:token', async function (ctx) {
     payload.result = {
       total: saved.scores.total,
       cut: saved.scores.cut,
+      invalid: !!saved.scores.invalid,
+      invalidReason: saved.scores.invalidReason || null,
       dimensions: saved.scores.dimensions,
       flags: saved.scores.flags,
       completeness: saved.scores.completeness,
@@ -1330,9 +1337,9 @@ route('GET', '/api/studies/:id/export-wide.csv', function (ctx) {
     for (let i = 0; i + 1 < waves.length; i += 1) header.push('DELTA_W' + waves[i].wave + 'W' + waves[i + 1].wave);
   }
   const rows = [header];
-  const subj = {};
+  const subj = Object.create(null);
   waves.forEach(function (w) {
-    w.responses.forEach(function (r) {
+    excludeConflicts(w.responses).responses.forEach(function (r) {
       const sid = r.subjectId || ('UNLINKED_' + r.pid);
       if (!subj[sid]) subj[sid] = {};
       subj[sid][w.id] = r;

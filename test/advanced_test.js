@@ -196,12 +196,77 @@ function request(method, url, body) {
     '宽表包含每位受试者的变化值 Δ（S-100：18 → 9，Δ=9）');
   ok(lines[1].indexOf('S-100') >= 0, '宽表按受试者编号组织，可直接做重复测量方差分析');
 
+  console.log('\n【4b】历史重复冲突透明且不扩大配对n');
+  const dbm = require(path.join(ROOT, 'lib', 'db.js'));
+  const { buildFollowup, pairWaves } = require(path.join(ROOT, 'lib', 'followup.js'));
+  const response = function (sid, total, pid) { return { subjectId: sid, pid: pid, scores: { total: total } }; };
+  const historyA = [response('dupA', 10, 'a1'), response('dupA', 20, 'a2'), response('ok', 12, 'a3'), response('__proto__', 8, 'a4'), response('dupB', 7, 'a5')];
+  const historyB = [response('dupA', 5, 'b1'), response('ok', 6, 'b2'), response('__proto__', 4, 'b3'), response('dupB', 3, 'b4'), response('dupB', 2, 'b5')];
+  const paired = pairWaves(historyA, historyB);
+  ok(JSON.stringify(paired.ids) === JSON.stringify(['ok', '__proto__']), 'pairWaves 两侧冲突全部排除，安全处理特殊编号', paired);
+  const history = buildFollowup({ items: [] }, [{ id: 1, label: '基线', responses: historyA }, { id: 2, label: '随访', responses: historyB }]);
+  ok(history.conflicts && history.conflicts.length === 2 && history.warnings && history.warnings.length === 2, '历史冲突按survey+编号报告警告', history.conflicts);
+  ok(history.pairs[0].n === 2 && history.waves[0].summary.n === 3 && history.waves[1].summary.n === 3, '重复行不扩大配对或时点统计样本量');
+  const conflictedA = history.subjects.find(function (s) { return s.subjectId === 'dupA'; });
+  const conflictedB = history.subjects.find(function (s) { return s.subjectId === 'dupB'; });
+  ok(conflictedA && !conflictedA.waves[1] && conflictedA.waves[2].total === 5 && conflictedB && !conflictedB.waves[2], '宽表只排除冲突时点，不默选最新，保留无冲突时点');
+  ok(history.retention.completedAll === 2, '冲突时点不计入完成全部随访');
+  const existing = dbm.listResponses(w1.id)[0];
+  // 只在隔离测试库注入历史重复；验证新保存不删除/覆盖历史记录。
+  dbm.db.prepare('INSERT INTO responses(survey_id,pid,answers,scores,subject_id) VALUES(?,?,?,?,?)')
+    .run(w1.id, 'historical-duplicate', JSON.stringify(existing.answers), JSON.stringify({ total: 99 }), existing.subjectId);
+  const conflictReport = await request('GET', '/api/studies/' + studyRes.study.id + '/report');
+  ok(conflictReport.json.conflicts && conflictReport.json.conflicts[0].surveyId === w1.id && conflictReport.json.conflicts[0].subjectId === 'S-100' && conflictReport.json.warnings.length > 0 && conflictReport.json.pairs[0].n === 9,
+    'Node JSON 报告明确显示历史冲突，配对n=9', conflictReport.json.conflicts);
+  const conflictWide = await request('GET', '/api/studies/' + studyRes.study.id + '/export-wide.csv');
+  const conflictCells = conflictWide.text.split('\r\n').find(function (line) { return line.startsWith('S-100,'); }).split(',');
+  ok(conflictCells[1] === '' && conflictCells[4] === '9' && conflictCells[7] === '', 'Node CSV宽表冲突时点及差值为空，其他时点保留', conflictCells);
+  let storageError;
+  try { dbm.saveResponse(w1, phq, { subjectId: 'S-100', answers: existing.answers }); } catch (e) { storageError = e; }
+  ok(storageError && storageError.code === 'DUPLICATE_SUBJECT' && dbm.listResponses(w1.id).filter(function (r) { return r.subjectId === 'S-100'; }).length === 2,
+    'Node 保存层拒绝重复且保留两条历史行');
+
   console.log('\n【5】随访研究列表与清理');
   r = await request('GET', '/api/studies');
-  ok(r.json.items.length === 1 && r.json.items[0].waveCount === 2 && r.json.items[0].responseCount === 20,
-    '随访研究列表统计正确（2 时点 / 20 份答卷）');
+  ok(r.json.items.length === 1 && r.json.items[0].waveCount === 2 && r.json.items[0].responseCount === 21,
+    '随访研究列表保留并统计全部历史答卷（2 时点 / 21 份）');
   r = await request('GET', '/api/surveys');
   ok(r.json.items.length === 3, '随访时点也出现在普通调查列表中（便于单独查看）');
+  const { Worker } = require('node:worker_threads');
+  const racers = [];
+  // 顺序初始化连接，避免无关的模板首启同步竞争；只让目标saveResponse并发。
+  for (let i = 0; i < 2; i += 1) {
+    const worker = new Worker(`
+      const { parentPort, workerData } = require('node:worker_threads');
+      process.env.MEDSCALE_DB = workerData.dbPath;
+      const dbm = require(workerData.modulePath);
+      parentPort.once('message', function () {
+        try {
+          const saved = dbm.saveResponse(dbm.getSurvey(workerData.surveyId), dbm.getScale(workerData.scaleId), { subjectId: 'NODE-RACE', answers: workerData.answers });
+          parentPort.postMessage({ saved: saved.id });
+        } catch (e) { parentPort.postMessage({ code: e.code, error: e.message }); }
+        dbm.db.close();
+      });
+      parentPort.postMessage('ready');
+    `, { eval: true, workerData: { dbPath: process.env.MEDSCALE_DB, modulePath: path.join(ROOT, 'lib', 'db.js'), surveyId: w2.id, scaleId: phq.id, answers: existing.answers } });
+    await new Promise(function (resolve, reject) { worker.once('message', resolve); worker.once('error', reject); });
+    racers.push(worker);
+  }
+  const racingResults = await Promise.all(racers.map(function (worker) {
+    return new Promise(function (resolve, reject) { worker.once('message', resolve); worker.once('error', reject); worker.postMessage('go'); });
+  }));
+  await Promise.all(racers.map(function (worker) { return worker.terminate(); }));
+  ok(racingResults.filter(function (r) { return !!r.saved; }).length === 1 && racingResults.some(function (r) { return r.code === 'DUPLICATE_SUBJECT'; }) && dbm.listResponses(w2.id).filter(function (r) { return r.subjectId === 'NODE-RACE'; }).length === 1,
+    'Node两个独立连接并发保存只接受一份', racingResults);
+  const noneFirst = await request('POST', '/api/join/' + survey.token, { subjectId: 'none-id', answers: { q1: 0 } });
+  const noneDuplicate = await request('POST', '/api/join/' + survey.token, { subjectId: 'none-id', answers: { q1: 0 } });
+  ok(noneFirst.status === 200 && noneDuplicate.status === 400, 'Node非随访模式有编号也检查重复');
+  const originalFind = dbm.findResponseBySubject;
+  dbm.findResponseBySubject = function () { return null; };
+  const racedRoute = await request('POST', '/api/join/' + survey.token, { subjectId: 'none-id', answers: { q1: 0 } });
+  dbm.findResponseBySubject = originalFind;
+  ok(racedRoute.status === 400 && /已提交|重复/.test(racedRoute.json.error), 'Node检查到保存之间的竞态返回可读400，不返回500', racedRoute.json);
+
   r = await request('DELETE', '/api/studies/' + studyRes.study.id);
   ok(r.status === 200, '删除随访研究成功');
   r = await request('GET', '/api/studies');

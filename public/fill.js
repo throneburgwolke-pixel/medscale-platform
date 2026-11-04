@@ -530,28 +530,38 @@ function showThanks(data, result, isPreview, subjectId) {
   // 临床评分由医护填写：不出现「感谢您的参与」这类面向受试者的话
   const clinician = !!(data && data.scale && data.scale.definition && data.scale.definition.rater === 'clinician');
   let body = '';
-  if (result && result.total !== null && result.total !== undefined) {
-    const cut = result.cut || {};
-    body += '<div class="card mt16"><div class="card-title">' + (clinician ? '评分结果' : '您的评估结果') + '</div>' +
-      '<div class="center" style="padding:8px 0 4px">' +
-        '<div class="muted small">总分</div>' +
-        '<div style="font-size:44px;font-weight:700;color:var(--brand-dark);line-height:1.15">' + result.total + '</div>' +
-        (cut.label ? '<div class="tag ' + (cut.level === 'normal' ? 'ok' : cut.level === 'severe' ? 'danger' : 'warn') +
-          '" style="font-size:14px;padding:5px 14px">' + esc(cut.label) + '</div>' : '') +
-        (cut.advice ? '<div class="small muted mt8">' + esc(cut.advice) + '</div>' : '') +
-      '</div>';
+  if (result) {
+    const hasTotal = result.total !== null && result.total !== undefined;
     const dims = Object.keys(result.dimensions || {});
-    if (dims.length > 1) {
-      body += '<div class="table-wrap mt16"><table class="table"><thead><tr><th>维度</th><th>得分</th></tr></thead><tbody>' +
-        dims.map(function (k) {
-          const d = result.dimensions[k];
-          return '<tr><td>' + esc(d.name) + '</td><td><b>' + (d.score === null || d.score === undefined ? '—' : d.score) + '</b></td></tr>';
-        }).join('') + '</tbody></table></div>';
+    const flags = result.flags || [];
+    if (hasTotal || dims.length || flags.length || result.invalid) {
+      const cut = result.cut || {};
+      body += '<div class="card mt16"><div class="card-title">' + (clinician ? '评分结果' : '您的评估结果') + '</div>';
+      if (hasTotal) {
+        const scoring = data && data.scale && data.scale.definition && data.scale.definition.scoring || {};
+        body += '<div class="center" style="padding:8px 0 4px">' +
+          '<div class="muted small">' + esc(scoring.unit || '总分') + '</div>' +
+          '<div style="font-size:44px;font-weight:700;color:var(--brand-dark);line-height:1.15">' + esc(result.total) + '</div>' +
+          (cut.label ? '<div class="tag ' + (cut.level === 'normal' ? 'ok' : cut.level === 'severe' ? 'danger' : 'warn') +
+            '" style="font-size:14px;padding:5px 14px">' + esc(cut.label) + '</div>' : '') +
+          (cut.advice ? '<div class="small muted mt8">' + esc(cut.advice) + '</div>' : '') + '</div>';
+      }
+      if (dims.length > 1 || (!hasTotal && dims.length) || dims.some(function (k) { return result.dimensions[k].cut; })) {
+        body += '<div class="table-wrap mt16"><table class="table"><thead><tr><th>维度/时点</th><th>得分</th><th>判读</th></tr></thead><tbody>' +
+          dims.map(function (k) {
+            const d = result.dimensions[k];
+            return '<tr><td>' + esc(d.name) + '</td><td><b>' + (d.score === null || d.score === undefined ? '—' : esc(d.score)) +
+              '</b></td><td>' + esc(d.cut ? d.cut.label : '—') + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+      }
+      if (result.invalid) body += '<div class="banner warn mt16">存在缺失、无法评估或不符合计分规则的输入，无法完成计分；有效的独立维度分保留，请核对原始资料。</div>';
+      flags.forEach(function (flag) {
+        body += '<div class="banner ' + (flag.level === 'info' ? 'info' : 'danger') + ' mt16">' + esc(flag.text) + '</div>';
+      });
+      body += '<div class="banner info mt16 mb0 small">' + (clinician
+        ? '评分由系统按量表规则自动计算，请结合临床判断使用。'
+        : '本结果基于自评量表自动计算，仅供健康筛查参考，<b>不能替代临床诊断</b>。如有明显不适，请及时就医。') + '</div></div>';
     }
-    if (result.flags && result.flags.length) body += '<div class="banner danger mt16">' + esc(result.flags[0].text) + '</div>';
-    body += '<div class="banner info mt16 mb0 small">' + (clinician
-      ? '评分由系统按量表规则自动计算，请结合临床判断使用。'
-      : '本结果基于自评量表自动计算，仅供健康筛查参考，<b>不能替代临床诊断</b>。如有明显不适，请及时就医。') + '</div></div>';
   }
   $('#app').innerHTML = '<div class="fill-wrap">' +
     '<div class="card center"><div style="font-size:42px">✅</div>' +
