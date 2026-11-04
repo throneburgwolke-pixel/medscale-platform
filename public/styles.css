@@ -392,7 +392,12 @@ table .num { text-align: right; font-variant-numeric: tabular-nums; white-space:
 .banner.ok { background: var(--ok-50); color: var(--ok-text); }
 
 /* ---------- 量表卡片 ---------- */
-.scale-card { display: flex; flex-direction: column; cursor: pointer; }
+/* 长列表（120+ 张卡）时让浏览器跳过屏外卡片的布局与绘制；
+   不支持 content-visibility 的浏览器自动忽略这两行，行为与原来一致 */
+.scale-card {
+  display: flex; flex-direction: column; cursor: pointer;
+  content-visibility: auto; contain-intrinsic-size: auto 186px;
+}
 .scale-card .title { font-size: 15.5px; font-weight: 650; margin-bottom: var(--space-2); line-height: 1.4; }
 .scale-card .desc { color: var(--ink-2); font-size: var(--fs-13); flex: 1; }
 .scale-card .foot { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding-top: var(--space-3); border-top: 1px solid var(--line-2); }

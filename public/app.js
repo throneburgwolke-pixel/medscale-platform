@@ -1083,8 +1083,16 @@ async function viewHome() {
   $('#btn-new-blank').onclick = async function () {
     const blank = state.scales.find(function (s) { return s.code === 'blank'; });
     if (!blank) return toast('未找到空白模板', 'err');
-    const created = await api('/scales', { method: 'POST', body: { fromTemplateId: blank.id, title: '未命名问卷' } });
-    go('/builder/' + created.id);
+    const btn = this;
+    if (btn.disabled) return;          // 连点会建出多个空白问卷
+    btn.disabled = true;
+    try {
+      const created = await api('/scales', { method: 'POST', body: { fromTemplateId: blank.id, title: '未命名问卷' } });
+      go('/builder/' + created.id);
+    } catch (e) {
+      toast(e.message, 'err');
+      btn.disabled = false;
+    }
   };
   bindHotCards();
   bindFavButtons();
@@ -1431,8 +1439,16 @@ async function viewScales(query) {
   $('#btn-import').onclick = function () { go('/import'); };
   $('#btn-blank2').onclick = async function () {
     const blank = state.scales.find(function (s) { return s.code === 'blank'; });
-    const created = await api('/scales', { method: 'POST', body: { fromTemplateId: blank.id, title: '未命名问卷' } });
-    go('/builder/' + created.id);
+    const btn = this;
+    if (btn.disabled) return;          // 连点会建出多个空白问卷
+    btn.disabled = true;
+    try {
+      const created = await api('/scales', { method: 'POST', body: { fromTemplateId: blank.id, title: '未命名问卷' } });
+      go('/builder/' + created.id);
+    } catch (e) {
+      toast(e.message, 'err');
+      btn.disabled = false;
+    }
   };
 
   if (isCatalog) return renderCatalog(kw, sort);
@@ -1451,9 +1467,15 @@ async function viewScales(query) {
   if (sort === 'items') list.sort(function (a, b) { return a.definition.items.length - b.definition.items.length; });
   if (sort === 'name') list.sort(function (a, b) { return a.title.localeCompare(b.title, 'zh'); });
 
-  $('#list-area').innerHTML = list.length
-    ? '<div class="muted small mb8">共 ' + list.length + ' 个结果</div><div class="grid cols-3">' + list.map(scaleCard).join('') + '</div>'
-    : '<div class="card"><div class="empty"><span class="big">🔍</span>没有匹配的量表<br><span class="small">试试其他关键词，或到「量表目录」查找需授权的量表</span></div></div>';
+  if (!list.length) {
+    $('#list-area').innerHTML = '<div class="card"><div class="empty"><span class="big">🔍</span>没有匹配的量表<br><span class="small">试试其他关键词，或到「量表目录」查找需授权的量表</span></div></div>';
+    return;
+  }
+  /* 列表一次渲染完整结果：检索/翻页预期是「列表里就有」，分批反而妨碍找表。
+     长列表的布局开销交给 .scale-card 的 content-visibility（浏览器跳过屏外卡片）处理。 */
+  $('#list-area').innerHTML =
+    '<div class="muted small mb8">共 ' + list.length + ' 个结果</div>' +
+    '<div class="grid cols-3">' + list.map(scaleCard).join('') + '</div>';
   bindScaleCards();
   bindFavButtons();
 }
@@ -1561,21 +1583,32 @@ function bindScaleCards() {
       const act = b.dataset.act;
       if (act === 'view') return go('/scale/' + id);
       if (act === 'edit') return go('/builder/' + id);
+      /* 写操作做一次性锁：连点「创建副本」会建出多个同名副本，「删除」第二次会报 404 */
+      if (act === 'copy' || act === 'del') {
+        if (b.dataset.busy === '1') return;
+        b.dataset.busy = '1';
+      }
       if (act === 'copy') {
-        const created = await api('/scales', { method: 'POST', body: { fromTemplateId: id } });
-        state.scales = [];
-        toast('已创建副本，可自由编辑');
-        return go('/builder/' + created.id);
+        try {
+          const created = await api('/scales', { method: 'POST', body: { fromTemplateId: id } });
+          state.scales = [];
+          toast('已创建副本，可自由编辑');
+          return go('/builder/' + created.id);
+        } catch (err) {
+          toast(err.message, 'err');
+          delete b.dataset.busy;
+          return;
+        }
       }
       if (act === 'publish') return openPublishDialog(id);
       if (act === 'del') {
-        if (!confirmBox('确定删除这个量表？删除后不可恢复。')) return;
+        if (!confirmBox('确定删除这个量表？删除后不可恢复。')) { delete b.dataset.busy; return; }
         try {
           await api('/scales/' + id, { method: 'DELETE' });
           state.scales = [];
           toast('已删除');
           render();
-        } catch (err) { toast(err.message, 'err'); }
+        } catch (err) { toast(err.message, 'err'); delete b.dataset.busy; }
       }
     };
   });
@@ -2419,7 +2452,21 @@ function optionIdentityError(definition) {
   return '';
 }
 
+/* 保存中的互斥标记：按钮没有 disabled 状态时，双击/手抖连点会在第一个请求
+   还没返回（draftIsNew 仍为 true）时再发一次 POST，生成两个重复量表。 */
+let builderSaving = false;
+
 async function saveBuilder(thenPublish, previewOnly) {
+  if (builderSaving) return;
+  builderSaving = true;
+  try {
+    return await saveBuilderInner(thenPublish, previewOnly);
+  } finally {
+    builderSaving = false;
+  }
+}
+
+async function saveBuilderInner(thenPublish, previewOnly) {
   syncBasicFields();
 
   // 校验
@@ -2561,6 +2608,12 @@ async function openPublishDialog(scaleId) {
   div.onclick = function (e) { if (e.target === div) div.remove(); };
   $('#p-cancel', div).onclick = function () { div.remove(); };
   $('#p-ok', div).onclick = async function () {
+    /* 防连点：每点一次都会新建一个带独立 token 的调查，发出去后数据就散了 */
+    const btn = this;
+    if (btn.disabled) return;
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '正在创建…';
     try {
       const created = await api('/surveys', {
         method: 'POST',
@@ -2578,7 +2631,11 @@ async function openPublishDialog(scaleId) {
       div.remove();
       state.surveys = [];
       go('/survey/' + created.id);
-    } catch (e) { toast(e.message, 'err'); }
+    } catch (e) {
+      toast(e.message, 'err');
+      btn.disabled = false;
+      btn.textContent = label;
+    }
   };
 }
 
@@ -3223,6 +3280,11 @@ function openFollowupDialog() {
   };
   bindWaveDel();
   $('#st-ok', div).onclick = async function () {
+    const btn = this;
+    if (btn.disabled) return;          // 连点会建出多个随访研究（每个都带自己的时点链接）
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '正在创建…';
     const waves = $$('[data-wave]', div).map(function (row) {
       return { label: $('input', row).value.trim() || '随访' };
     });
@@ -3240,7 +3302,11 @@ function openFollowupDialog() {
       });
       div.remove();
       go('/followup/' + r.study.id);
-    } catch (e) { toast(e.message, 'err'); }
+    } catch (e) {
+      toast(e.message, 'err');
+      btn.disabled = false;
+      btn.textContent = label;
+    }
   };
 }
 
@@ -3442,6 +3508,9 @@ function initBackupPanel() {
     }
   };
   $('#btn-backup').onclick = async function () {
+    const btn = this;
+    if (btn.disabled) return;          // 连点会生成多份快照
+    btn.disabled = true;
     result.textContent = '正在生成快照…';
     try {
       const meta = await api('/backup', { method: 'POST', body: {} });
@@ -3454,6 +3523,8 @@ function initBackupPanel() {
     } catch (e) {
       result.textContent = '备份失败：' + e.message;
       toast('备份失败：' + e.message, 'err');
+    } finally {
+      btn.disabled = false;
     }
   };
   const fileInput = $('#restore-file');

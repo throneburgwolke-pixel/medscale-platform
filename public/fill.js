@@ -85,6 +85,25 @@ function buildSections(def) {
   return out.length ? out : [{ title: '', items: items }];
 }
 
+/* ---------- 未提交离开保护 ---------- */
+/* 草稿会自动存本地，但受访者并不知道；误关页面/返回上一页时给一次确认，
+   避免「填了十几题结果白填」的错觉。提交成功后立即解除，不给正常关闭添麻烦。 */
+const unloadGuard = function (e) {
+  e.preventDefault();
+  e.returnValue = '';
+  return '';
+};
+let unloadGuardOn = false;
+function setUnloadGuard(on) {
+  const want = !!on;
+  if (want === unloadGuardOn) return;
+  try {
+    if (want) window.addEventListener('beforeunload', unloadGuard);
+    else window.removeEventListener('beforeunload', unloadGuard);
+  } catch (e) { /* 老浏览器忽略 */ }
+  unloadGuardOn = want;
+}
+
 /* ---------- 草稿自动保存 ---------- */
 function draftKey(token) { return 'medscale_draft_' + (token || 'preview'); }
 function loadDraft(token) {
@@ -127,6 +146,8 @@ function drawFill(isPreview) {
   const visibleItems = items.filter(function (it) { return isVisible(vis, it.id); });
   const answeredCount = visibleItems.filter(hasAnswer).length;
   const pct = Math.round(answeredCount / Math.max(1, visibleItems.length) * 100);
+  /* 已答过题且还没提交时才拦一下；预览模式不拦 */
+  setUnloadGuard(!isPreview && answeredCount > 0);
 
   const consentBlock = (!st.consent && data.scale.consentOn)
     ? '<div class="card"><div class="card-title">知情同意</div>' +
@@ -531,6 +552,7 @@ async function submitFill() {
 }
 
 function showThanks(data, result, isPreview, subjectId) {
+  setUnloadGuard(false);   // 已提交/已结束，正常关闭不应再被拦
   // 临床评分由医护填写：不出现「感谢您的参与」这类面向受试者的话
   const clinician = !!(data && data.scale && data.scale.definition && data.scale.definition.rater === 'clinician');
   let body = '';
