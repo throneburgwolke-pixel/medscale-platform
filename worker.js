@@ -51,8 +51,23 @@ function html(code, body, extra) {
   const headers = Object.assign({ 'Content-Type': 'text/html; charset=utf-8' }, extra || {});
   return new Response(body, { status: code, headers: headers });
 }
-async function readJson(request) {
-  try { const t = await request.text(); return t ? JSON.parse(t) : {}; }
+/* 请求体上限：普通 JSON 接口 1 MB；导入接口放宽到 32 MB（20 MB 文件经 base64 后约 27 MB）。
+   没有上限时，一个超大 body 会先被完整读入内存再 JSON.parse，直接顶到 Workers 的 128 MB 内存与
+   CPU 限制，等于给匿名请求留了一条打垮 isolate 的路。 */
+const MAX_BODY_JSON = 1 * 1024 * 1024;
+const MAX_BODY_UPLOAD = 32 * 1024 * 1024;
+
+class BodyTooLarge extends Error {
+  constructor() { super('请求内容过大'); this.code = 'BODY_TOO_LARGE'; }
+}
+
+async function readJson(request, maxBytes) {
+  const limit = maxBytes || MAX_BODY_JSON;
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (declared && declared > limit) throw new BodyTooLarge();
+  const t = await request.text();
+  if (t.length > limit) throw new BodyTooLarge();
+  try { return t ? JSON.parse(t) : {}; }
   catch (e) { return {}; }
 }
 function getCookie(req, name) {
@@ -115,8 +130,8 @@ const sessionStore = {
   async clear() { await dbm.clearSessions(); },
 };
 function sessionOf(req) { return sessionStore.get(getCookie(req, 'msid')); }
-async function isAdmin(req) {
-  const s = await sessionOf(req);
+async function isAdmin(req, presetSession) {
+  const s = presetSession || await sessionOf(req);
   if (!s) return false;
   if (s.userId) return (await dbm.getUser(s.userId) || {}).role === 'admin';
   return s.admin === true;
@@ -131,6 +146,9 @@ function makeLimiter(dbm) {
   return {
     async limit(key, max, windowMs) {
       const nowMs = Date.now();
+      /* 过期窗口记录顺手清掉（概率触发，别让 rate_limits 只增不减）：
+         每个来源+场景一行，长期运行会越积越多，D1 也有容量上限。 */
+      if (windowMs > 0 && Math.random() < 0.02) { try { await dbm.purgeRateLimits(nowMs - windowMs); } catch (e) { /* 清理失败不影响限流判断 */ } }
       const rec = await dbm.getRateLimit(key);
       if (!rec || nowMs - rec.first > windowMs) { await dbm.setRateLimit(key, nowMs, 1); return { allowed: true }; }
       const n = rec.n + 1;
@@ -185,7 +203,7 @@ async function api(method, path, url, request, env) {
   if (method === 'GET' && path === '/api/session') {
     const s = await sessionOf(request);
     const user = s && s.userId ? await dbm.getUser(s.userId) : null;
-    const admin = await isAdmin(request);
+    const admin = await isAdmin(request, s);   // 复用已查会话，少一次 D1 查询
     const body = { authenticated: !!s, user: user, isAdmin: admin, allowRegister: await registerOpen(dbm),
       registerMode: await registerMode(dbm), registerAvailable: await registerAvailable(dbm),
       siteTitle: await dbm.getSetting('site_title', '医学量表与问卷平台'), deployment: 'cloudflare' };
@@ -220,11 +238,17 @@ async function api(method, path, url, request, env) {
     const mode = await registerMode(dbm);
     let invite = null;
     if (!bootstrap) {
-      if (mode === 'closed') return json(403, { error: '注册当前已关闭，请联系管理员开通' });
+      if (mode === 'closed') {
+        await dbm.log('register_denied', 'IP ' + ip + ' 注册已关闭');
+        return json(403, { error: '注册当前已关闭，请联系管理员开通' });
+      }
       if (mode === 'invite') {
         if (!String(b.invite || '').trim()) return json(403, { error: '请填写邀请码（由管理员在"系统设置"中生成）' });
         const check = await inviteUsable(dbm, await dbm.findInviteByCode(b.invite));
-        if (!check.ok) return json(403, { error: check.error });
+        if (!check.ok) {
+          await dbm.log('register_denied', '邀请码无效 IP ' + ip);
+          return json(403, { error: check.error });
+        }
         invite = check.invite;
       }
     }
@@ -279,10 +303,15 @@ async function api(method, path, url, request, env) {
     });
     return json(200, { items: items, categories: CATEGORIES }, securityHeaders());
   }
-  /* 预览计分（不保存数据，用于编辑器/填写页实时预览） */
+  /* 预览计分（不保存数据，用于编辑器/填写页实时预览）
+     该接口无需登录（编辑器预览要用），因此必须自己设上限：
+     不限题目数时，匿名请求可以用超大 definition 逼出一次长时间的计分计算。 */
   if (method === 'POST' && path === '/api/preview-score') {
     const body = await readJson(request);
     const def = body.definition || {};
+    const items = Array.isArray(def.items) ? def.items : [];
+    if (!items.length) return json(400, { error: '缺少量表定义' });
+    if (items.length > 500) return json(400, { error: '量表题目过多（上限 500 题）' });
     const errors = validateAnswers(def, body.answers || {});
     if (errors.length) return json(400, { error: '有题目未作答', details: errors });
     return json(200, scoreResponse(def, body.answers || {}));
@@ -409,7 +438,9 @@ async function api(method, path, url, request, env) {
     if (!survey) return json(404, { error: '调查不存在或已失效' });
     const st = await dbm.surveyState(survey);
     if (!st.open) return json(409, { error: st.reason });
-    const rl = await limiter.limit('join|' + ip, 200, 10 * 60 * 1000);
+    /* 按 IP 限流：院内/病区通常共用一个出口 IP，集中填写时会一起消耗配额，
+       200 次/10 分钟对「一个病区同时扫码」偏紧，放宽到 600 次仍能挡住脚本刷问卷。 */
+    const rl = await limiter.limit('join|' + ip, 600, 10 * 60 * 1000);
     if (!rl.allowed) return json(429, { error: '提交过于频繁，请 ' + rl.retryAfterSec + ' 秒后再试' });
     const b = await readJson(request);
     const scale = await dbm.getScale(survey.scaleId);
@@ -483,8 +514,7 @@ async function api(method, path, url, request, env) {
     const v = await viewer(request); const id = Number(m[1]); const s = await dbm.getSurvey(id);
     if (!s || !canView(s, v)) return json(403, { error: '无权查看该调查' });
     const scale = await dbm.getScale(s.scaleId);
-    const rows = await dbm.listResponses(id);
-    const r = rows.find(function (x) { return String(x.id) === String(m[2]) || String(x.pid) === String(m[2]); });
+    const r = await dbm.getResponse(id, m[2]);
     if (!r) return json(404, { error: '答卷不存在' });
     const items = scale.definition.items.map(function (it) {
       const val = (r.answers || {})[it.id];
@@ -509,6 +539,7 @@ async function api(method, path, url, request, env) {
     return json(200, { items: await dbm.listResponses(id) });
   }
   if (m = path.match(/^\/api\/surveys\/(\d+)\/export\.csv$/)) {
+    if (method !== 'GET') return json(405, { error: '方法不允许' });
     const v = await viewer(request); const id = Number(m[1]); const s = await dbm.getSurvey(id);
     if (!s || !canView(s, v)) return json(403, { error: '无权查看' });
     const scale = await dbm.getScale(s.scaleId);
@@ -538,6 +569,7 @@ async function api(method, path, url, request, env) {
       'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(s.name + '-数据导出.csv') } });
   }
   if (m = path.match(/^\/api\/surveys\/(\d+)\/export\.json$/)) {
+    if (method !== 'GET') return json(405, { error: '方法不允许' });
     const v = await viewer(request); const id = Number(m[1]); const s = await dbm.getSurvey(id);
     if (!s || !canView(s, v)) return json(403, { error: '无权查看' });
     const scale = await dbm.getScale(s.scaleId);
@@ -593,6 +625,7 @@ async function api(method, path, url, request, env) {
   }
   /* 变量说明 codebook（对齐 server.js：变量名/类型/题目/取值说明 + 维度 + TOTAL + GRADE） */
   if (m = path.match(/^\/api\/surveys\/(\d+)\/codebook\.csv$/)) {
+    if (method !== 'GET') return json(405, { error: '方法不允许' });
     const v = await viewer(request); const id = Number(m[1]); const s = await dbm.getSurvey(id);
     if (!s || !canView(s, v)) return json(403, { error: '无权查看' });
     const def = (await dbm.getScale(s.scaleId)).definition;
@@ -752,8 +785,8 @@ async function api(method, path, url, request, env) {
     if (!v) return json(401, { error: '请先登录' });
     const rl = await limiter.limit('upload|' + ip, 40, 10 * 60 * 1000);
     if (!rl.allowed) return json(429, { error: '上传过于频繁，请 ' + rl.retryAfterSec + ' 秒后再试' }, { 'Retry-After': String(rl.retryAfterSec) });
-    const b = await readJson(request);
-    const name = String(b.filename || 'upload');
+    const b = await readJson(request, MAX_BODY_UPLOAD);
+    const name = String(b.filename || 'upload').slice(0, 200);
     if (!b.data) return json(400, { error: '缺少文件内容' });
     let bytes;
     try {
@@ -832,8 +865,19 @@ async function api(method, path, url, request, env) {
   if (method === 'POST' && path === '/api/settings') {
     if (!(await requireAdmin(request))) return json(403, { error: '需要管理员权限' });
     const b = await readJson(request);
-    if (b.registerMode) await dbm.setSetting('register_mode', b.registerMode);
-    if (b.siteTitle) await dbm.setSetting('site_title', b.siteTitle);
+    /* 注册策略必须是三态之一：写入任意字符串会让 /api/session 的 registerMode
+       与注册入口的行为脱节（server.js 同样是先校验再写入，非法值整请求失败） */
+    let mode = null;
+    if (b.registerMode !== undefined) mode = String(b.registerMode);
+    else if (b.allowRegister !== undefined) mode = b.allowRegister ? 'open' : 'closed';
+    if (mode !== null && mode !== 'closed' && mode !== 'invite' && mode !== 'open') {
+      return json(400, { error: '注册策略只能是 closed / invite / open 之一' });
+    }
+    if (b.siteTitle && String(b.siteTitle).trim()) await dbm.setSetting('site_title', String(b.siteTitle).trim().slice(0, 80));
+    if (mode !== null) {
+      await dbm.setSetting('register_mode', mode);
+      await dbm.log('register_mode', mode);
+    }
     return json(200, { ok: true });
   }
   if (method === 'POST' && path === '/api/password') {
@@ -848,14 +892,36 @@ async function api(method, path, url, request, env) {
   /* 二维码 / 使用说明 */
   if (method === 'GET' && path === '/api/qr.png') {
     const text = url.searchParams.get('text') || '';
-    const scale = Number(url.searchParams.get('scale')) || 8;
-    const png = qr.png(text, scale, 4);
-    return new Response(png, { status: 200, headers: { 'Content-Type': 'image/png' } });
+    if (!text) return json(400, { error: '缺少 text 参数' });
+    if (text.length > 1200) return json(400, { error: '二维码内容过长（上限 1200 字符）' });
+    /* scale 不设上限时，一个 ?scale=99999 会让 PNG 编码撑爆内存/CPU */
+    const scale = Math.min(20, Math.max(2, Number(url.searchParams.get('scale')) || 8));
+    try {
+      const png = qr.png(text, scale, 4);
+      return new Response(png, { status: 200, headers: Object.assign({ 'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=3600' }, securityHeaders()) });
+    } catch (e) {
+      return json(400, { error: '二维码生成失败：内容过长或包含无法编码的字符' });
+    }
   }
   if (method === 'GET' && path === '/api/guide.md') {
-    // 边缘端无文件系统：优先使用环境变量内联的使用说明文本，否则返回占位提示。
-    const content = env.MEDSCALE_GUIDE || '# 使用说明\n\nCloudflare 边缘端不读取服务器本地文件。完整使用说明以仓库 `docs/使用说明.md` 为准；如需内置，可把说明文本写入环境变量 `MEDSCALE_GUIDE`。';
-    return new Response(content, { status: 200, headers: { 'Content-Type': 'text/markdown; charset=utf-8' } });
+    /* 边缘端没有文件系统，说明文档随静态资源发布到 public/guide.md；
+       部署时若要覆盖内容，可用 MEDSCALE_GUIDE 环境变量内联。 */
+    const asMd = function (body) {
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'text/markdown; charset=utf-8',
+        'Cache-Control': 'public, max-age=600' } });
+    };
+    if (env.MEDSCALE_GUIDE) return asMd(env.MEDSCALE_GUIDE);
+    if (env.ASSETS) {
+      try {
+        const got = await env.ASSETS.fetch(new Request(new URL('/guide.md', url.origin).toString(), { method: 'GET' }));
+        if (got && got.status === 200) {
+          const body = await got.text();
+          if (body && body.trim()) return asMd(body);
+        }
+      } catch (e) { /* 取不到就退回占位文本 */ }
+    }
+    return asMd('# 使用说明\n\n本部署未内置说明文档。可把 `docs/使用说明.md` 复制为 `public/guide.md` 后重新部署，或写入环境变量 `MEDSCALE_GUIDE`。');
   }
 
   return json(501, { error: '该接口在 Cloudflare Workers 版本中未实现。' });
@@ -866,7 +932,9 @@ async function viewer(request) {
   const s = await sessionOf(request);
   if (!s) return null;
   const u = s.userId ? await dbm.getUser(s.userId) : null;
-  return { id: u ? u.id : null, admin: await isAdmin(request) };
+  /* 复用上面已查到的会话，避免 isAdmin 再查一次 sessions/user（每个请求省 1-2 次 D1 往返） */
+  const admin = await isAdmin(request, s);
+  return { id: u ? u.id : null, admin: admin };
 }
 function canView(item, v) {
   if (!item) return false;
@@ -918,7 +986,13 @@ export default {
       if (path.startsWith('/api/')) return await api(method, path, url, request, env);
       return html(404, '<h1>404</h1><p>页面不存在。<a href="/">返回首页</a></p>', securityHeaders());
     } catch (e) {
-      return json(500, { error: '服务器错误：' + (e && e.message ? e.message : String(e)) });
+      if (e && e.code === 'BODY_TOO_LARGE') {
+        return json(413, { error: '请求内容过大，已被拒绝。普通提交上限 1 MB，导入文件上限 20 MB。' });
+      }
+      /* 细节只进日志：把 e.message 直接回给客户端会暴露 SQL/表名/栈信息 */
+      const ref = randomToken(6);
+      try { console.error('[medscale] ' + ref + ' ' + method + ' ' + path + ' :: ' + (e && e.stack || e)); } catch (e2) { /* ignore */ }
+      return json(500, { error: '服务器处理时出错，请稍后重试。若反复失败，请向管理员反馈代号 ' + ref + '。' });
     }
   },
 };

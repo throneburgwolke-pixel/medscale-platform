@@ -65,12 +65,40 @@ async function api(path, opts) {
     o.body = JSON.stringify(o.body);
   }
   if (o.method && o.method !== 'GET') o.headers['Content-Type'] = o.headers['Content-Type'] || 'application/json';
-  const res = await fetch('/api' + path, o);
+  /* 超时兜底：弱网下 fetch 可能挂很久，界面会一直停在「加载中」。
+     默认 30 秒；上传/导入这类大请求可用 opts.timeout 放宽。 */
+  const timeoutMs = Number(o.timeout) > 0 ? Number(o.timeout) : 30000;
+  delete o.timeout;
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timer = null;
+  if (ctrl) {
+    o.signal = ctrl.signal;
+    timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
+  }
+  let res;
+  try {
+    res = await fetch('/api' + path, o);
+  } catch (e) {
+    const aborted = !!(e && (e.name === 'AbortError' || e.code === 20));
+    /* 只改写「真的连不上/超时」这类错误；其它异常保留原始信息，
+       否则后端/中间层给出的具体原因会被一句通用文案吞掉，排查时无从下手。 */
+    const looksNetwork = !!(e && (e instanceof TypeError || /fetch|network|load failed|Failed to fetch/i.test(String(e.message || ''))));
+    const msg = aborted
+      ? '请求超时（' + Math.round(timeoutMs / 1000) + ' 秒未响应），请检查网络后重试'
+      : (looksNetwork ? '网络连接失败，请检查网络或稍后重试' : ((e && e.message) || '请求失败，请稍后重试'));
+    const err = new Error(msg);
+    err.network = true;
+    err.cause = e;
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   const text = await res.text();
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { error: text }; }
   if (!res.ok) {
     const err = new Error(data.error || ('请求失败 ' + res.status));
+    err.status = res.status;
     err.detail = data;
     throw err;
   }

@@ -54,7 +54,7 @@ function walk(dir, out) {
 
   console.log('\n【3b】public/ 只放要发布的文件');
   // public/ 整个目录会作为静态资源部署到 Cloudflare，多余文件会一起上线
-  const EXPECTED_ASSETS = ['app.js', 'common.js', 'fill.html', 'fill.js', 'index.html', 'logic.js', 'styles.css'];
+  const EXPECTED_ASSETS = ['app.js', 'common.js', 'fill.html', 'fill.js', 'guide.md', 'index.html', 'logic.js', 'styles.css'];
   const actualAssets = fs.readdirSync(path.join(ROOT, 'public')).filter(function (n) { return n !== '.DS_Store'; }).sort();
   const extra = actualAssets.filter(function (n) { return EXPECTED_ASSETS.indexOf(n) < 0; });
   t.ok(extra.length === 0, 'public/ 里没有多余文件（会被当作静态资源一起部署）', extra.join(', '));
@@ -63,6 +63,13 @@ function walk(dir, out) {
   const syncSrc = pkg.scripts['sync:logic'] || '';
   t.ok(/^cp lib\/logic\.js public\/logic\.js/.test(syncSrc) && /echo '[^']*'/.test(syncSrc),
     'sync:logic 的提示语被引号包住（否则 -> 会被当成重定向，在 public/ 里生成垃圾文件）', syncSrc);
+  // public/guide.md 是 docs/使用说明.md 的副本（Workers 边缘端无文件系统，靠它提供 /api/guide.md）
+  const syncGuide = pkg.scripts['sync:guide'] || '';
+  t.ok(/docs\/使用说明\.md public\/guide\.md/.test(syncGuide), 'sync:guide 指向 docs/使用说明.md → public/guide.md', syncGuide);
+  const guideSrc = fs.readFileSync(path.join(ROOT, 'docs', '使用说明.md'), 'utf8');
+  const guideCopy = fs.readFileSync(path.join(ROOT, 'public', 'guide.md'), 'utf8');
+  t.ok(guideSrc === guideCopy, 'public/guide.md 与 docs/使用说明.md 一致（不一致时跑 npm run sync:guide）',
+    guideSrc === guideCopy ? '' : '两份内容不同，说明改完文档忘了同步');
 
   console.log('\n【4】仓库里没有历史快照目录，且有可照做的工程说明');
   t.ok(!fs.existsSync(path.join(ROOT, 'ui_backup')), 'ui_backup/ 已移出仓库（归档在仓库外）');

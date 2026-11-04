@@ -31,6 +31,10 @@ async function viewFill(token) {
 
 function renderFill(data, token, isPreview) {
   const items = data.scale.definition.items;
+  /* 标签页/分享标题用问卷名：受试者同时开着几个问卷时能分清哪个是哪个 */
+  try {
+    if (!isPreview) document.title = (data.survey.name || data.scale.title || '问卷填写') + ' · 问卷填写';
+  } catch (e) { /* ignore */ }
   const sections = buildSections(data.scale.definition);
   const restored = isPreview ? null : loadDraft(token);
   const studyId = data.survey && data.survey.studyId;

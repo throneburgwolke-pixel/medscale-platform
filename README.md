@@ -135,6 +135,7 @@ public/
   fill.js          公开填写页视图（按需懒加载，管理端首屏不下载）
   app.js           管理端视图（hash 路由，直接渲染）
   logic.js         由 lib/logic.js 复制而来（npm run sync:logic）
+  guide.md         由 docs/使用说明.md 复制而来（npm run sync:guide；npm run sync:public 两个一起同步）
   styles.css
 docs/使用说明.md   给使用者的操作说明
 test/              上述测试与 helpers/
@@ -303,11 +304,14 @@ npx wrangler deploy
 
 - **账号不互通**：Workers 版用 PBKDF2 哈希口令，Node 版用 scrypt，二者口令不可直接迁移。
   这是一次**全新部署**——在 Cloudflare 上重新注册管理员、重新开调查，而不是把 Node 的 `data/app.db` 搬过去。
-- **暂未实现的接口**：随访研究（`/api/studies`）、数据备份/恢复、文件导入（xlsx/csv）在 Workers 版
-  返回 `501`，前端会有明确提示。需要这些能力时仍用 Render/Node 版。答题、计分、二维码、邀请码、
-  用户/设置、CSV/JSON 导出均已可用。
-- **备份**：边缘端无文件系统，不生成本地备份文件；请用应用内「CSV/JSON 导出」，或到 Cloudflare 控制台的 D1 页导出。
-- **使用说明页**：边缘端不读本地文件，`/api/guide.md` 默认返回占位；如需内置，把说明文本写进环境变量 `MEDSCALE_GUIDE`。
+- **功能覆盖**：答题、计分、二维码、邀请码、用户/设置、随访研究（多时点 + 配对分析 + 宽表导出）、
+  CSV/JSON/SPSS/变量说明四种导出、文件导入解析（xlsx/docx/pdf/csv/txt）在 Workers 版均可用。
+- **边缘端降级的两处**：
+  1. **应用内备份/恢复**：D1 是托管库，不生成 `.sqlite` 快照文件；备份请到 Cloudflare 控制台
+     → Workers & Pages → D1 → Export 导出，恢复同理。应用内按钮会给出明确指引而不是报错。
+  2. **图片 OCR**：图片转文字依赖服务器本地能力，边缘端不提供；上传图片会提示改用 Excel 模板或手工录入。
+- **使用说明页**：`docs/使用说明.md` 会复制成 `public/guide.md` 随静态资源发布（`npm run sync:public`），
+  `/api/guide.md` 直接读取它；如需覆盖，可用环境变量 `MEDSCALE_GUIDE`。
 - **免费档配额**：D1 免费额度为每日 500 万次读、10 万次写、单库 500 MB，科室/研究组用量完全够用；
   若需更大，升 Workers 付费档或 D1 付费档即可。
 

@@ -143,12 +143,15 @@ https://medscale-platform.<你的子域>.workers.dev
 
 1. **数据不互通**：Workers 版用 PBKDF2 哈希、D1 独立数据库，与 Render 版（scrypt + 本地 SQLite）**完全独立**。  
    这是一次**全新部署**——需要在 Cloudflare 上重新注册管理员、重新建量表/问卷，**不能把 `data/app.db` 直接搬过去**。
-2. **暂未实现的接口**（Workers 版返回 501，前端有明确提示）：
-   - 随访研究 `/api/studies`
-   - 备份 / 恢复（请用 Cloudflare 控制台的 D1 导出功能做备份）
-   - 文件导入（xlsx/csv）  
-     上述能力在 Render / 本地 Node 版仍可用。答题、自动计分、二维码、邀请码、用户/设置、CSV/JSON 导出均已可用。
-3. **备份建议**：在 Cloudflare 控制台 → Workers & Pages → 你的项目 → D1 → 点「导出」即可下载数据库副本，定期存一份。
+2. **功能覆盖**：答题、自动计分、二维码、邀请码、用户/设置、随访研究（多时点 + 配对分析 + 宽表导出）、
+   CSV/JSON/SPSS/变量说明四种导出、文件导入解析（xlsx/docx/pdf/csv/txt）在 Workers 版均可用。
+3. **边缘端降级的两处**：
+   - **备份 / 恢复**：D1 是托管数据库，不生成 `.sqlite` 快照文件；请用下方第 4 条的导出功能，
+     应用内「立即生成备份」会给出明确指引而不是报错。
+   - **图片 OCR**：依赖服务器本地能力，边缘端不提供；上传图片时会提示改用 Excel 模板或手工录入。
+4. **备份建议**：在 Cloudflare 控制台 → Workers & Pages → 你的项目 → D1 → 点「导出」即可下载数据库副本，定期存一份。
+5. **改代码后要同步静态副本**：`public/logic.js`、`public/guide.md` 是 `lib/logic.js`、`docs/使用说明.md` 的副本，
+   改动后先 `npm run sync:public` 再 `npx wrangler deploy`，否则线上页面/说明会停留在旧版本。
 
 ---
 

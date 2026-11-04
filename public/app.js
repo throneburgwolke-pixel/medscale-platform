@@ -352,7 +352,7 @@ function shell(activeKey, content, crumbs) {
               '<div class="small" style="color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
                 esc(state.session && state.session.user ? (state.session.user.name || state.session.user.username) : '管理员') + '</div>' +
               '<div style="font-size:11px;color:var(--grad-fog)">' +
-                (state.session && state.session.user ? (state.session.user.org || (state.session.isAdmin ? '管理员' : '研究者')) : '管理员模式') + '</div>' +
+                esc(state.session && state.session.user ? (state.session.user.org || (state.session.isAdmin ? '管理员' : '研究者')) : '管理员模式') + '</div>' +
             '</div>' +
           '</div>' +
           '<a class="nav-item" href="#/scales?|全部|catalog"><span class="ico" aria-hidden="true">🗂️</span>量表目录</a>' +
@@ -1026,8 +1026,13 @@ function viewLogin(subtitle) {
 
 /* ================= 视图：首页 ================= */
 async function viewHome() {
-  const ov = await api('/overview');
-  if (!state.scales.length) state.scales = (await api('/scales')).items;
+  /* 并行取数：两个接口没有依赖关系，串行会让首屏多等一个 D1/SQLite 往返 */
+  const needScales = !state.scales.length;
+  const [ov, scalesRes] = await Promise.all([
+    api('/overview'),
+    needScales ? api('/scales') : Promise.resolve(null),
+  ]);
+  if (needScales && scalesRes) state.scales = scalesRes.items;
   const tplCount = ov.templateCount !== undefined
     ? ov.templateCount
     : state.scales.filter(function (s) { return s.isTemplate; }).length;
@@ -1195,7 +1200,7 @@ function handleImportFile(file) {
       try { importState = Object.assign({}, importState || {}); importState.imageDataUrl = reader.result; } catch (e) { /* ignore */ }
     }
     try {
-      const res = await api('/import/parse', { method: 'POST', body: { filename: file.name, data: base64 } });
+      const res = await api('/import/parse', { method: 'POST', body: { filename: file.name, data: base64 }, timeout: 180000 });
       importState = Object.assign(importState || {}, res, { filename: file.name });
       renderImportReview();
     } catch (e) {
@@ -3516,7 +3521,10 @@ async function viewSettings() {
       '</div>' : '') +
     '<div class="grid cols-2">' +
       ((session.isAdmin) ? '<div class="card"><div class="card-title">修改管理员密码</div>' +
-        (session.defaultPassword ? '<div class="banner warn">当前仍在使用首次初始化的管理员口令，建议立即修改；口令值见服务器启动日志或数据目录下的「管理员初始口令.txt」。</div>' : '') +
+        (session.defaultPassword ? '<div class="banner warn">当前仍在使用首次初始化的管理员口令，建议立即修改。' +
+          (isCloud()
+            ? '口令是部署时设置的 <span class="mono">MEDSCALE_PASSWORD</span>；若当时未设置，则是首次初始化随机生成的值（可在 <span class="mono">wrangler tail</span> 日志中查看）。'
+            : '口令值见服务器启动日志或数据目录下的「管理员初始口令.txt」。') + '</div>' : '') +
         '<label class="fld"><span>原密码</span><input type="password" id="old-pwd"></label>' +
         '<label class="fld"><span>新密码（至少 6 位）</span><input type="password" id="new-pwd"></label>' +
         '<button class="btn primary" id="btn-pwd">修改密码</button>' +
@@ -3664,6 +3672,24 @@ function safeDraw(fn) {
   }
 }
 
+/* 图表重绘注册表：手机旋转、窗口缩放、分屏后按新宽度重画。
+   canvas 的内部像素尺寸只在绘制时确定，CSS 只是把位图拉伸，
+   不重绘就会出现柱状图变扁、文字糊成一团。 */
+const chartRedraws = new WeakMap();
+function registerRedraw(cv, fn) { if (cv) chartRedraws.set(cv, fn); }
+let chartResizeTimer = null;
+window.addEventListener('resize', function () {
+  if (chartResizeTimer) clearTimeout(chartResizeTimer);
+  chartResizeTimer = setTimeout(function () {
+    $$('canvas').forEach(function (cv) {
+      if (!cv.isConnected) return;
+      const fn = chartRedraws.get(cv);
+      if (!fn) return;
+      try { fn(); } catch (e) { /* 单个图表失败不影响其它 */ }
+    });
+  }, 180);
+});
+
 function prepCanvas(cv) {
   if (!cv) return null;
   const dpr = window.devicePixelRatio || 1;
@@ -3681,6 +3707,7 @@ function prepCanvas(cv) {
 }
 
 function drawBars(cv, labels, values, color, errors) {
+  registerRedraw(cv, function () { drawBars(cv, labels, values, color, errors); });
   const p = prepCanvas(cv);
   if (!p) return;
   const ctx = p.ctx;
@@ -3744,6 +3771,7 @@ function drawBars(cv, labels, values, color, errors) {
 
 /** 折线图（累计回收趋势） */
 function drawLine(cv, labels, values, color, seriesName) {
+  registerRedraw(cv, function () { drawLine(cv, labels, values, color, seriesName); });
   const p = prepCanvas(cv);
   if (!p || !values.length) return;
   const ctx = p.ctx;
@@ -3822,6 +3850,7 @@ function drawLine(cv, labels, values, color, seriesName) {
 }
 
 function drawHistogram(cv, values, range, meanValue, axisLabel) {
+  registerRedraw(cv, function () { drawHistogram(cv, values, range, meanValue, axisLabel); });
   const p = prepCanvas(cv);
   if (!p || !values.length) return;
   const ctx = p.ctx;
@@ -3941,6 +3970,16 @@ async function render() {
       '<span class="big">⚠️</span>页面加载失败：' + esc(e.message) +
       '<div class="mt16"><button class="btn" data-reload="1">重新加载</button></div></div></div></div>';
   } finally {
+    /* 标签页标题跟随视图：多个后台标签同时打开时能一眼分清 */
+    if (r.name !== 'fill') {
+      const TITLES = {
+        home: '工作台', scales: '量表库', scale: '量表详情', builder: '量表编辑器', import: '导入量表',
+        surveys: '发放与数据', survey: '调查分析', followups: '随访研究', followup: '随访详情',
+        settings: '系统设置', library: '公开量表库', guide: '使用流程',
+        login: '登录', register: '注册', admin: '管理员登录',
+      };
+      document.title = (TITLES[r.name] ? TITLES[r.name] + ' · ' : '') + '医学量表与问卷平台';
+    }
     endProgress();
   }
 }

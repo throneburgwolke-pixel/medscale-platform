@@ -331,7 +331,8 @@ const AUTH_WINDOW_MS = 15 * 60 * 1000;
  * 填写提交按「一个科室集体扫码」设计，额度要给足；解析/上传是 CPU 密集操作（含 OCR），最容易被刷穿。
  */
 const RATE_POLICY = {
-  join: { max: 200, windowMs: 10 * 60 * 1000 },
+  /* 院内通常共用一个出口 IP：200 次/10 分钟对「一个病区同时扫码」偏紧，放宽到 600 次 */
+  join: { max: 600, windowMs: 10 * 60 * 1000 },
   upload: { max: 40, windowMs: 10 * 60 * 1000 },
 };
 
@@ -858,7 +859,7 @@ route('GET', '/api/surveys/:id/response/:rid', function (ctx) {
   if (!s) return sendJson(ctx.res, 404, { error: '调查不存在' });
   if (!canView(s, viewerOf(ctx.req))) return sendJson(ctx.res, 403, { error: '无权查看该调查' });
   const scale = dbm.getScale(s.scaleId);
-  const r = dbm.listResponses(s.id).find(function (x) { return String(x.id) === String(ctx.params.rid) || String(x.pid) === String(ctx.params.rid); });
+  const r = dbm.getResponse(s.id, ctx.params.rid);
   if (!r) return sendJson(ctx.res, 404, { error: '答卷不存在' });
   const items = scale.definition.items.map(function (it) {
     const v = r.answers[it.id];
