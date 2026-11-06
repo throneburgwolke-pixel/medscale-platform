@@ -976,5 +976,44 @@ if (!dom.available()) {
   t.pass += identityTests.pass;
   t.fail += identityTests.fail;
 
+  console.log('\n【27】液态玻璃指针高光：仅桌面精确指针、遵循减弱动效');
+  function glassProbe(matchesFor) {
+    const g = dom.makeDom(srv, admin.cookieStore);
+    g.w.matchMedia = function (q) {
+      return { matches: matchesFor(q), media: q, addEventListener: function () { }, removeEventListener: function () { } };
+    };
+    const el = g.d.createElement('div');
+    el.className = 'glass';
+    g.d.body.appendChild(el);
+    // jsdom 不做布局：给一个确定的矩形，才能验证百分比换算
+    el.getBoundingClientRect = function () { return { left: 0, top: 0, width: 200, height: 100 }; };
+    return { g: g, el: el };
+  }
+  function move(p, x, y) {
+    p.el.dispatchEvent(new p.g.w.MouseEvent('pointermove', { bubbles: true, clientX: x, clientY: y }));
+  }
+  // 触屏/粗指针：不绑定
+  const touch = glassProbe(function () { return false; });
+  touch.g.w.MEDSCALE_GLASS.init();
+  move(touch, 50, 25);
+  await dom.wait(60);
+  t.ok(touch.el.style.getPropertyValue('--gx') === '', '非精确指针（触屏）不绑定指针高光');
+  touch.g.w.close();
+  // 桌面精确指针 + 允许动效：写入 --gx/--gy
+  const desk = glassProbe(function (q) { return /hover: hover/.test(q); });
+  desk.g.w.MEDSCALE_GLASS.init();
+  move(desk, 50, 25);
+  await dom.wait(60);
+  t.ok(desk.el.style.getPropertyValue('--gx') === '25.00%' && desk.el.style.getPropertyValue('--gy') === '25.00%',
+    '指针高光按矩形换算写入 --gx/--gy', desk.el.style.cssText);
+  desk.g.w.close();
+  // 减弱动效：即使精确指针也不绑定
+  const calm = glassProbe(function (q) { return /hover: hover/.test(q) || /reduced-motion/.test(q); });
+  calm.g.w.MEDSCALE_GLASS.init();
+  move(calm, 50, 25);
+  await dom.wait(60);
+  t.ok(calm.el.style.getPropertyValue('--gx') === '', 'prefers-reduced-motion 时不启用指针高光');
+  calm.g.w.close();
+
   process.exit(t.done('前端行为'));
 })();

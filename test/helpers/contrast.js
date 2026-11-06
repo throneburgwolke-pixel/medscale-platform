@@ -35,4 +35,28 @@ function ratio(fg, bg) {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
-module.exports = { rgb: rgb, luminance: luminance, ratio: ratio };
+/* 半透明色解析（保留 alpha）：rgb() 对 alpha<1 返回 null，合成计算需要单独解析 */
+function rgba(color) {
+  const s = String(color).trim();
+  let m = s.match(/^#([0-9a-fA-F]{6})$/);
+  if (m) return [0, 2, 4].map(function (i) { return parseInt(m[1].substr(i, 2), 16); }).concat(1);
+  m = s.match(/^#([0-9a-fA-F]{3})$/);
+  if (m) return [0, 1, 2].map(function (i) { return parseInt(m[1][i] + m[1][i], 16); }).concat(1);
+  m = s.match(/^rgba?\(([^)]+)\)$/);
+  if (m) {
+    const p = m[1].split(/[,\s/]+/).filter(Boolean).map(parseFloat);
+    if (p.length >= 3 && p.slice(0, 3).every(Number.isFinite)) return [p[0], p[1], p[2], p.length >= 4 ? p[3] : 1];
+  }
+  return null;
+}
+
+/* 把半透明前景合成到不透明背景上，返回不透明 rgb() 字符串，供 ratio() 使用 */
+function composite(fg, bg) {
+  const f = rgba(fg); const b = rgba(bg);
+  if (!f || !b) return null;
+  const a = f[3];
+  const out = [0, 1, 2].map(function (i) { return Math.round(f[i] * a + b[i] * (1 - a)); });
+  return 'rgb(' + out.join(',') + ')';
+}
+
+module.exports = { rgb: rgb, luminance: luminance, ratio: ratio, rgba: rgba, composite: composite };

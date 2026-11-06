@@ -104,3 +104,35 @@ async function api(path, opts) {
   }
   return data;
 }
+
+/* ---------- 液态玻璃：指针跟随高光 ----------
+   仅桌面精确指针且未开启减弱动效时启用；事件委托 + rAF 节流，只处理 .glass 外壳，
+   不给每张卡片绑监听。触屏与 prefers-reduced-motion 完全不绑定。 */
+function initGlassSheen() {
+  if (initGlassSheen._bound) return;
+  const mm = window.matchMedia;
+  if (!mm) return;
+  const fine = mm('(hover: hover) and (pointer: fine)');
+  const calm = mm('(prefers-reduced-motion: reduce)');
+  if (!fine || !fine.matches || (calm && calm.matches)) return;
+  initGlassSheen._bound = true;
+  let raf = 0;
+  let pending = null;
+  document.addEventListener('pointermove', function (e) {
+    const el = e.target && e.target.closest ? e.target.closest('.glass, .topbar, .modal, .fill-topbar, .fill-bar') : null;
+    if (!el) return;
+    pending = { el: el, x: e.clientX, y: e.clientY };
+    if (raf) return;
+    raf = requestAnimationFrame(function () {
+      raf = 0;
+      const p = pending; pending = null;
+      if (!p) return;
+      const r = p.el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      p.el.style.setProperty('--gx', (((p.x - r.left) / r.width) * 100).toFixed(2) + '%');
+      p.el.style.setProperty('--gy', (((p.y - r.top) / r.height) * 100).toFixed(2) + '%');
+    });
+  }, { passive: true });
+}
+window.MEDSCALE_GLASS = { init: initGlassSheen };
+initGlassSheen();

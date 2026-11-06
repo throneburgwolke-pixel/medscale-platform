@@ -131,9 +131,13 @@ const tokenOf = function (cookie) { return (/msid=([^;]+)/.exec(cookie || '') ||
   console.log('\n【6】临时文件名带随机后缀，并发请求不互相覆盖');
   // 先清掉以前中断运行留下的 .tmp（临时文件是正式备份的硬链接，历史残留不影响数据），
   // 让下面的断言精确表达"本次备份过程不留临时文件"。
-  require('node:fs').readdirSync(dbm.backupDir).forEach(function (f) {
-    if (/\.tmp$/.test(f)) { try { require('node:fs').unlinkSync(require('node:path').join(dbm.backupDir, f)); } catch (e) { /* ignore */ } }
-  });
+  // 备份目录是 gitignored 的运行产物，全新克隆/清理后可能不存在，存在才读取。
+  const fsSync = require('node:fs');
+  if (fsSync.existsSync(dbm.backupDir)) {
+    fsSync.readdirSync(dbm.backupDir).forEach(function (f) {
+      if (/\.tmp$/.test(f)) { try { fsSync.unlinkSync(require('node:path').join(dbm.backupDir, f)); } catch (e) { /* ignore */ } }
+    });
+  }
   const p1 = parse.ocrTempPath('png');
   const p2 = parse.ocrTempPath('png');
   t.ok(p1 !== p2, '同一毫秒内的两次上传用不同临时文件', p1 + ' / ' + p2);

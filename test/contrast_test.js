@@ -5,7 +5,7 @@
  */
 const path = require('node:path');
 const fs = require('node:fs');
-const { luminance, ratio } = require('./helpers/contrast.js');
+const { luminance, ratio, rgb, rgba, composite } = require('./helpers/contrast.js');
 
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
@@ -163,6 +163,36 @@ function checkGradients(map) {
   const res = checkGradients(pair[1]);
   ok(res.checked >= 4, pair[0] + '主题扫描到「渐变底 × 文字色」规则（主按钮/徽标/头图）', res.checked + ' 条');
   ok(res.bad.length === 0, pair[0] + '主题渐变底上的反白文字达到 WCAG AA', res.bad.join(' | '));
+});
+
+/* ---------- 【玻璃】液态玻璃：半透明材质按最坏情况合成后仍须 AA ---------- */
+const GLASS_TOKENS = ['--glass-bg', '--glass-dark', '--glass-strong', '--glass-border', '--glass-blur', '--glass-spec'];
+[['浅色', light], ['深色', dark]].forEach(function (pair) {
+  const name = pair[0]; const map = pair[1];
+  GLASS_TOKENS.forEach(function (tk) {
+    ok(map[tk] !== undefined, name + ' 定义玻璃令牌 ' + tk, map[tk]);
+  });
+  // 硬约束：承载正文的底色令牌必须保持不透明，否则对比度无法计算
+  ['--surface', '--surface-2', '--bg'].forEach(function (tk) {
+    ok(rgb(map[tk]) !== null, name + ' ' + tk + ' 保持不透明（玻璃走独立令牌）', map[tk]);
+  });
+  const strong = rgba(map['--glass-strong']);
+  ok(strong && strong[3] >= 0.92, name + ' 内容磨砂不透明度 ≥92%', strong && strong[3]);
+  // 内容磨砂叠在页面各种底色上，三档正文色都要 ≥4.5:1
+  ['--bg', '--surface', '--brand-50', '--accent-50'].forEach(function (bg) {
+    const base = composite(map['--glass-strong'], map[bg]);
+    ok(base !== null, name + ' 可合成 磨砂玻璃 over ' + bg, base);
+    ['--ink', '--ink-2', '--ink-3'].forEach(function (ink) {
+      const r = ratio(map[ink], base);
+      ok(r !== null && r >= 4.5, name + ' ' + ink + ' on 磨砂/' + bg + ' ≥4.5:1', r === null ? '无法计算' : r.toFixed(2));
+    });
+  });
+  // 侧栏深色玻璃上的浅色文字
+  const side = composite(map['--glass-dark'], map['--sidebar-bg']);
+  ['--sidebar-ink', '--sidebar-ink-2'].forEach(function (ink) {
+    const r = ratio(map[ink], side);
+    ok(r !== null && r >= 4.5, name + ' ' + ink + ' on 侧栏玻璃 ≥4.5:1', r === null ? '无法计算' : r.toFixed(2));
+  });
 });
 
 console.log('\n———————————————————————————————');

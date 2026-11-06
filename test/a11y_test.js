@@ -86,6 +86,12 @@ function hasLabel(ctrl, d) {
   t.ok(/transition\s*:\s*none|transition-duration\s*:\s*0/.test(rmBlock), '减少动效时关闭过渡');
   t.ok(/\.reveal[^{]*\{[^}]*opacity\s*:\s*1/.test(rmBlock),
     '减少动效时滚动显现内容仍保持可见（animation:none 不会执行 slideUpIn 的终态）');
+  /* 液态玻璃：不支持 backdrop-filter 或用户要求减少透明度时，必须回退实底 */
+  t.ok(/@supports\s+not\s*\(\s*backdrop-filter/.test(clean), '存在 @supports not (backdrop-filter) 降级块');
+  t.ok(/prefers-reduced-transparency/.test(clean), '存在 prefers-reduced-transparency 降级块');
+  const fallback = (clean.match(/@supports\s+not\s*\(\s*backdrop-filter[^)]*\)\s*\)\s*\{([\s\S]*?)\n\}/) || [])[1] || '';
+  t.ok(/--surface|--sidebar-bg/.test(fallback), '降级块把玻璃回退为不透明底色', fallback.slice(0, 80));
+  t.ok(/--gx/.test(clean) && /--gy/.test(clean), '玻璃高光使用 --gx/--gy 指针坐标变量');
   t.ok(ruleBody(/\.skip-link/).length > 0, '存在 .skip-link（键盘用户跳转主内容）');
   t.ok(/\.skip-link:focus|\.skip-link:focus-visible/.test(clean), '.skip-link 聚焦时可见');
 

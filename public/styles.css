@@ -110,6 +110,14 @@
   --ease-soft: cubic-bezier(.33, .8, .4, 1);       /* 更柔的常规缓动 */
   --ease-spring: cubic-bezier(.34, 1.4, .5, 1);    /* 轻微回弹，用于浮起/出现 */
   --ease-inout: cubic-bezier(.65, .05, .36, 1);    /* 往复漂浮 */
+  /* —— 液态玻璃：独立令牌，承载正文的 --surface/--bg 保持不透明（对比度可计算） —— */
+  --glass-bg: rgba(255, 255, 255, .62);          /* 外壳真玻璃 */
+  --glass-dark: rgba(11, 50, 56, .82);           /* 侧栏深色玻璃 */
+  --glass-strong: rgba(255, 255, 255, .94);      /* 内容磨砂：≥92% 不透明，保证题干/分值清晰 */
+  --glass-border: rgba(255, 255, 255, .55);      /* 高光边 */
+  --glass-blur: 18px;
+  --glass-spec: rgba(255, 255, 255, .35);        /* 指针跟随高光 */
+  --glass-shadow: 0 8px 32px rgba(11, 40, 45, .12), inset 0 1px 0 rgba(255, 255, 255, .6), inset 0 -1px 0 rgba(11, 40, 45, .06);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -150,6 +158,13 @@
     --focus-ring-soft: rgba(245, 183, 63, .22);
     --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
     --shadow-2: 0 2px 6px rgba(0, 0, 0, .35), 0 12px 28px rgba(0, 0, 0, .3);
+    --glass-bg: rgba(22, 42, 48, .55);
+    --glass-dark: rgba(8, 26, 30, .78);
+    --glass-strong: rgba(24, 38, 43, .94);
+    --glass-border: rgba(255, 255, 255, .14);
+    --glass-blur: 18px;
+    --glass-spec: rgba(255, 255, 255, .14);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .08), inset 0 -1px 0 rgba(0, 0, 0, .3);
   }
 }
 
@@ -1007,6 +1022,87 @@ details summary:hover { color: var(--brand-600); }
   body.printing-narrative #narrative-print * { visibility: visible !important; }
   body.printing-narrative #narrative-print { position: absolute; left: 0; top: 0; width: 100%; }
   body.printing-narrative #narrative-print p { text-indent: 2em; line-height: 2; }
+}
+
+/* ---------- 液态玻璃材质 ----------
+   外壳真玻璃（模糊+高光边+折射），内容磨砂（≥92% 不透明，保证题干/分值清晰）。
+   承载正文的 --surface/--bg 仍不透明；玻璃走独立令牌，对比度按最坏情况合成校验。 */
+.glass,
+.topbar, .modal, .fill-topbar, .fill-bar, .toast {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+/* 指针跟随高光：仅桌面精确指针由 common.js 写入 --gx/--gy，触屏/减弱动效不启用 */
+.glass, .modal { position: relative; }
+.glass::after, .topbar::after, .modal::after, .fill-topbar::after, .fill-bar::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(240px circle at var(--gx, 50%) var(--gy, 50%), var(--glass-spec), transparent 60%);
+  opacity: 0; transition: opacity .3s var(--ease-soft);
+}
+.glass:hover::after, .topbar:hover::after, .modal:hover::after,
+.fill-topbar:hover::after, .fill-bar:hover::after { opacity: 1; }
+/* 侧栏：深色玻璃叠在实底上，浅色文字对比度不变 */
+.sidebar {
+  background:
+    linear-gradient(var(--glass-dark), var(--glass-dark)),
+    var(--sidebar-bg);
+  border-right: 1px solid rgba(255, 255, 255, .08);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, .05);
+}
+/* 内容磨砂：量表卡片长列表（120+）不加 backdrop-filter，避免滚动开销 */
+.card, .q {
+  background: var(--glass-strong);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+.scale-card { background: var(--glass-strong); border-color: var(--glass-border); }
+.modal { background: var(--glass-strong); }
+/* 首页 hero 内的浮卡与按钮：玻璃质感 */
+.float-card {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  backdrop-filter: blur(10px) saturate(160%);
+  border: 1px solid var(--glass-border);
+}
+.hero .btn.light {
+  background: rgba(255, 255, 255, .16);
+  -webkit-backdrop-filter: blur(8px) saturate(160%);
+  backdrop-filter: blur(8px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35);
+}
+/* 背景光斑缓慢漂移（reduced-motion 由文末收口块统一关闭） */
+.blob { animation: blobDrift 26s var(--ease-inout) infinite alternate; }
+.blob.b2 { animation-duration: 32s; animation-direction: alternate-reverse; }
+@keyframes blobDrift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(24px, -18px, 0) scale(1.12); }
+}
+/* 移动端：降低模糊半径、关闭指针高光，省电并避免低端机卡顿 */
+@media (max-width: 720px) {
+  :root { --glass-blur: 10px; }
+  .glass::after, .topbar::after, .modal::after, .fill-topbar::after, .fill-bar::after { display: none; }
+}
+/* 降级：不支持 backdrop-filter 时回退实底，玻璃感消失但可读性不变 */
+@supports not (backdrop-filter: blur(1px)) {
+  .glass, .topbar, .modal, .fill-topbar, .fill-bar, .toast {
+    background: var(--surface);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .sidebar { background: var(--sidebar-bg); }
+  .card, .q, .scale-card, .modal, .float-card { background: var(--surface); }
+}
+/* 降级：用户要求减少透明度时同样回退实底 */
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .topbar, .modal, .fill-topbar, .fill-bar, .toast {
+    background: var(--surface);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .sidebar { background: var(--sidebar-bg); }
+  .card, .q, .scale-card, .modal, .float-card { background: var(--surface); }
+  .glass::after, .topbar::after, .modal::after, .fill-topbar::after, .fill-bar::after { display: none; }
 }
 
 /* ---------- 减少动效：遵循系统偏好，关掉动画、过渡与平滑滚动 ---------- */
