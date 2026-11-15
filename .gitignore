@@ -7,6 +7,7 @@ test/*.db-shm
 .DS_Store
 test/backups/
 test/shots/
+test/stability_tmp/
 test/运行地址.txt
 .superpowers/
 
