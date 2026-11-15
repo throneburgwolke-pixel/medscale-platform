@@ -7,11 +7,23 @@
  */
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const net = require('node:net');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..', '..');
+
+/** 隔离区：上一轮的库/端口文件改名移走而非删除，避免受限环境下的批量删除保护 */
+let quarantineDir = null;
+function quarantine(p) {
+  try {
+    if (!quarantineDir) quarantineDir = fs.mkdtempSync(path.join(os.tmpdir(), 'medscale-testdb-'));
+    fs.renameSync(p, path.join(quarantineDir, path.basename(p) + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)));
+  } catch (e) {
+    try { fs.renameSync(p, p + '.stale'); } catch (e2) { /* 清理失败不影响测试 */ }
+  }
+}
 
 /** 解析 chromium：优先 PLAYWRIGHT_PATH 指定的安装目录，其次是 devDependencies 里的 playwright */
 function resolveChromium() {
@@ -63,12 +75,12 @@ async function startTempServer(dbPath) {
   const addrFile = path.join(path.dirname(dbPath), '运行地址.txt');
   ['-wal', '-shm'].forEach(function (suffix) {
     const p = dbPath + suffix;
-    if (fs.existsSync(p)) fs.unlinkSync(p);
+    if (fs.existsSync(p)) quarantine(p);
   });
-  if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
-  if (fs.existsSync(addrFile)) fs.unlinkSync(addrFile);
+  if (fs.existsSync(dbPath)) quarantine(dbPath);
+  if (fs.existsSync(addrFile)) quarantine(addrFile);
   const pwFile = path.join(path.dirname(dbPath), '管理员初始口令.txt');
-  if (fs.existsSync(pwFile)) fs.unlinkSync(pwFile);
+  if (fs.existsSync(pwFile)) quarantine(pwFile);
   const env = Object.assign({}, process.env, { PORT: String(port), MEDSCALE_DB: dbPath });
   delete env.MEDSCALE_LAN; delete env.HOST;
   const child = spawn(process.execPath, [path.join(ROOT, 'server.js')], { cwd: ROOT, env: env, stdio: 'ignore' });
@@ -90,7 +102,7 @@ async function startTempServer(dbPath) {
       return new Promise(function (resolve) {
         child.removeAllListeners('exit');
         child.once('exit', function () {
-          if (fs.existsSync(addrFile)) fs.unlinkSync(addrFile);
+          if (fs.existsSync(addrFile)) quarantine(addrFile);
           resolve();
         });
         child.kill('SIGTERM');

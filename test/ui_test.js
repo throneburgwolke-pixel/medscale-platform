@@ -341,6 +341,29 @@ async function nav(app, hash) {
     '分节进度显示（7 个维度 + 检查页 = 8 节）');
   ok(/睡眠质量|入睡时间|睡眠时间|睡眠障碍/.test(fill2.d.body.textContent), '出现维度名称作为小节标题');
 
+  console.log('\n【H2b】MBI-HSS 填写页保持原卷题序（pages 显式分节）');
+  const mbiScale = JSON.parse((await rawRequest('GET', '/api/scales')).text).items
+    .find(function (s) { return s.code === 'mbi-hss'; });
+  ok(!!mbiScale, '量表库包含 MBI-HSS 模板');
+  const mbiSurvey = JSON.parse((await rawRequest('POST', '/api/surveys',
+    JSON.stringify({ scaleId: mbiScale.id, name: 'MBI-HSS 题序测试' }))).text);
+  const fill3 = makeApp('http://localhost:5173/s/' + mbiSurvey.token);
+  await wait(250);
+  const idsOf = function (doc) {
+    return Array.prototype.map.call(doc.querySelectorAll('.q'), function (n) { return n.getAttribute('data-qid'); }).join(',');
+  };
+  ok(idsOf(fill3.d) === 'mbi1,mbi2,mbi3,mbi4,mbi5,mbi6,mbi7,mbi8,mbi9',
+    '第一节按原卷顺序呈现第 1-9 题（三个维度混排，未按维度重排）', idsOf(fill3.d));
+  ok(fill3.d.body.textContent.indexOf('第 1–9 题') >= 0 && fill3.d.body.textContent.indexOf('第 1 / 3 节') >= 0,
+    '两节 + 检查页，小节标题按题号而非维度名');
+  ok(!/情绪耗竭 EE|去人性化 DP|个人成就感 PA/.test(fill3.d.body.textContent),
+    '填写页不把维度名当作小节标题暴露给受试者');
+  fill3.d.querySelector('#f-next').click();
+  await wait(150);
+  ok(idsOf(fill3.d) === 'mbi10,mbi11,mbi12,mbi13,mbi14,mbi15,mbi16,mbi17',
+    '第二节按原卷顺序呈现第 10-17 题', idsOf(fill3.d));
+  ok(fill3.d.body.textContent.indexOf('第 10–17 题') >= 0, '第二节标题与题号一致');
+
   console.log('\n【I】回收后数据看板更新');
   const app2 = makeApp();
   await ensureLogin(app2);

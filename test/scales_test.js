@@ -42,8 +42,12 @@ TEMPLATES.forEach(function (t) {
   ok(!!t.code && !!t.title && !!t.category && !!t.source && !!t.license, id + ' 元数据完整');
   ok(['free', 'registration', 'commercial'].indexOf(t.licenseTier) >= 0, id + ' licenseTier 合法', t.licenseTier);
   const pendCount = t.items.filter(function (it) { return it.textPending; }).length;
-  if (t.licenseTier === 'commercial') ok(pendCount === t.items.length, id + ' 商业授权模板全部条目为待填', pendCount);
-  else ok(pendCount === 0, id + ' 非商业授权模板不得有待填条目', pendCount);
+  if (t.licenseTier === 'commercial') {
+    // 商业量表：要么全部正文待填（平台不分发），要么全部由使用者按获准版本提供，
+    // 不允许只填一半；后者必须在 license 中写明权利方、授权要求与责任边界。
+    ok(pendCount === 0 || pendCount === t.items.length, id + ' 商业授权模板正文要么全待填、要么完整提供', pendCount);
+    if (pendCount === 0) ok(/授权|许可|版权|permission/i.test(t.license || ''), id + ' 使用者提供的正文已标注授权要求');
+  } else ok(pendCount === 0, id + ' 非商业授权模板不得有待填条目', pendCount);
   ok(!codes.has(t.code), id + ' code 唯一');
   codes.add(t.code);
   ok(t.items.length > 0, id + ' 至少有 1 个条目');
@@ -192,6 +196,31 @@ ok(r.total === 35 && r.cut.label === '重度症状', 'IPSS 症状条目 = 35 分
 r = scoreResponse(T('iciq-sf'), fill(T('iciq-sf'), 'max'));
 ok(r.total === 21 && r.cut.label === '极重度尿失禁', 'ICIQ-SF = 21 分（第4题多选不计分）', r.total);
 
+/* MBI-HSS：三维度分别计分、不合计总分；个人成就感只反向解释，不反转原始分值 */
+const mbi = T('mbi-hss');
+ok(mbi.items.length === 17 && mbi.scoring.totalEnabled === false, 'MBI-HSS 共 17 题且不计算合计总分');
+r = scoreResponse(mbi, all(mbi, 0));
+ok(r.total === null && r.cut === null && r.dimensions.ee.score === 0 && r.dimensions.dp.score === 0 && r.dimensions.pa.score === 0,
+  'MBI-HSS 全部选「从未有过」= 三个维度均 0 分', r.dimensions);
+r = scoreResponse(mbi, all(mbi, 6));
+ok(r.dimensions.ee.score === 42 && r.dimensions.dp.score === 18 && r.dimensions.pa.score === 42,
+  'MBI-HSS 全部选「每天」= EE 42 / DP 18 / PA 42（各维度满分）', r.dimensions);
+ok(r.total === null && r.cut === null, 'MBI-HSS 满分时仍不产生合计总分');
+ok(r.dimensions.pa.cut && r.dimensions.pa.cut.label === '按所用常模判读',
+  'MBI-HSS 维度判读不编造高/中/低界值');
+const mbiMixed = {};
+mbi.items.forEach(function (it) {
+  mbiMixed[it.id] = it.dimension === 'ee' ? 3 : it.dimension === 'dp' ? 2 : 5;
+});
+r = scoreResponse(mbi, mbiMixed);
+ok(r.dimensions.ee.score === 21 && r.dimensions.dp.score === 6 && r.dimensions.pa.score === 35,
+  'MBI-HSS 混合作答 = EE 7×3=21 / DP 3×2=6 / PA 7×5=35', r.dimensions);
+delete mbiMixed.mbi1;
+r = scoreResponse(mbi, mbiMixed);
+ok(r.dimensions.ee.score === null && r.dimensions.dp.score === 6 && r.dimensions.pa.score === 35,
+  'MBI-HSS 单题漏答只影响所属维度，其余维度仍可计分', r.dimensions);
+ok(validateAnswers(mbi, {}).length === 17, 'MBI-HSS 空卷 17 道必答题全部被校验拦截');
+
 console.log('\n【4】PSQI 专用计分');
 const psqiAns = {
   psq1: '23:30', psq2: 60, psq3: '07:00', psq4: 5,
@@ -213,6 +242,8 @@ ok(cats.size >= 8, '目录覆盖 ' + cats.size + ' 个分类');
 ['SOFA', 'APACHE II', 'Caprini', 'Glasgow-Blatchford', '改良 Geneva'].forEach(function (name) {
   ok(CATALOG.some(function (c) { return c.name.indexOf(name) >= 0; }), '目录列出复杂/版本化评分：' + name);
 });
+ok(CATALOG.some(function (c) { return c.name.indexOf('MBI-HSS') >= 0 && /常模/.test(c.note || ''); }),
+  '目录注明 MBI-HSS 常模数值表未提供');
 
 /* 目录里写「已内置」的条目必须真能找到对应模板，避免目录与量表库脱节后仍宣称可用 */
 function acronyms(text) {

@@ -58,12 +58,32 @@ function renderFill(data, token, isPreview) {
   drawFill(isPreview);
 }
 
-/** 分节：多维度量表按维度分节，否则每 10 题一节 */
+/** 分节：优先按显式 pages；多维度量表按维度分节，否则每 10 题一节 */
 function buildSections(def) {
   const items = def.items || [];
   const dims = (def.dimensions || []).filter(function (d) { return (d.items || []).length; });
   const byId = {};
   items.forEach(function (it) { byId[it.id] = it; });
+  /* 原卷题序在多维度间混排的量表（如 MBI-HSS）用 pages 显式分节：
+     若仍按维度分节，题目会被重排成三个维度块，题序与原表不再一致。
+     未列出的题目统一补到最后一节，避免分节配置遗漏导致漏题。 */
+  if (Array.isArray(def.pages) && def.pages.length) {
+    const explicit = def.pages.map(function (p) {
+      return {
+        title: p && p.title ? p.title : '',
+        items: ((p && p.items) || []).map(function (x) {
+          return byId[typeof x === 'string' ? x : (x && x.id)];
+        }).filter(Boolean),
+      };
+    }).filter(function (s) { return s.items.length; });
+    if (explicit.length) {
+      const covered = {};
+      explicit.forEach(function (s) { s.items.forEach(function (it) { covered[it.id] = 1; }); });
+      const rest = items.filter(function (it) { return !covered[it.id]; });
+      if (rest.length) explicit.push({ title: '其他问题', items: rest });
+      return explicit;
+    }
+  }
   if (dims.length >= 2) {
     const sections = [];
     const covered = {};
