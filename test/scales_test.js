@@ -221,6 +221,53 @@ ok(r.dimensions.ee.score === null && r.dimensions.dp.score === 6 && r.dimensions
   'MBI-HSS 单题漏答只影响所属维度，其余维度仍可计分', r.dimensions);
 ok(validateAnswers(mbi, {}).length === 17, 'MBI-HSS 空卷 17 道必答题全部被校验拦截');
 
+/* 科研专项工具：FRAS / MMAS-8 / ZBI / PANSS / 一般资料 */
+const fras = T('fras-54');
+r = scoreResponse(fras, all(fras, 1));
+ok(r.total === 66, 'FRAS 全选「非常不同意」= 66 分（4 个反向题各得 4 分）', r.total);
+r = scoreResponse(fras, all(fras, 4));
+ok(r.total === 204, 'FRAS 全选「非常同意」= 204 分', r.total);
+const frasRev = all(fras, 4);
+frasRev.fras33 = 1;
+ok(scoreResponse(fras, frasRev).total === 207, 'FRAS 第 33 题反向计分：改选最低后总分 204→207', scoreResponse(fras, frasRev).total);
+ok(fras.dimensions.length === 1 && fras.dimensions[0].id === 'total',
+  'FRAS 只计总分，不按二手题库自行拆分维度');
+
+const mmas = T('mmas-8');
+ok(scoreResponse(mmas, all(mmas, 0)).total === 0, 'MMAS-8 全选最差 = 0 分');
+r = scoreResponse(mmas, all(mmas, 1));
+ok(r.total === 8 && r.cut.label === '高依从性', 'MMAS-8 全选最好 = 8 分（高依从性）', r.total);
+const mmasMid = all(mmas, 1);
+mmasMid.mmas8 = 0;
+r = scoreResponse(mmas, mmasMid);
+ok(r.total === 7 && r.cut.label === '中等依从性', 'MMAS-8 第 8 题「非常困难」= 7 分（中等依从性）', r.total);
+const mmasQ5 = all(mmas, 0);
+mmasQ5.mmas5 = 1;
+ok(scoreResponse(mmas, mmasQ5).total === 1, 'MMAS-8 第 5 题「是」记 1 分（官方反向口径）');
+
+const zbi = T('zbi-22');
+r = scoreResponse(zbi, all(zbi, 4));
+ok(r.total === 88 && r.cut.label === '重度负担', 'ZBI 全选「总是」= 88 分（重度负担）', r.total);
+ok(r.dimensions.personal.score === 48 && r.dimensions.role.score === 24,
+  'ZBI 维度分：个人负担 12×4=48 / 责任负担 6×4=24（7、10、15、22 题不入维度）', r.dimensions);
+r = scoreResponse(zbi, all(zbi, 0));
+ok(r.total === 0 && r.cut.label === '无或轻度负担', 'ZBI 全选「没有」= 0 分');
+
+const panss = T('panss-30');
+r = scoreResponse(panss, all(panss, 1));
+ok(r.total === 30, 'PANSS 全部评 1 分 = 30 分（7+7+16 项）', r.total);
+r = scoreResponse(panss, all(panss, 7));
+ok(r.total === 210 && r.dimensions.positive.score === 49 && r.dimensions.negative.score === 49 && r.dimensions.general.score === 112,
+  'PANSS 全部评 7 分 = 210 分，三分量表 49/49/112', r.dimensions);
+ok(r.dimensions.positive.score + r.dimensions.negative.score + r.dimensions.general.score === r.total,
+  'PANSS 三个分量表之和等于总分（S1–S3 不计入）');
+
+const gpt = T('general-info-patient');
+const gct = T('general-info-caregiver');
+ok(gpt.scoring.method === 'none' && scoreResponse(gpt, all(gpt, 1)).total === null, '患者版一般资料不计分');
+ok(gct.scoring.method === 'none' && scoreResponse(gct, all(gct, 1)).total === null, '家属版一般资料不计分');
+ok(gpt.items.length === 18 && gct.items.length === 26, '一般资料患者版 18 题、家属版 26 题', [gpt.items.length, gct.items.length]);
+
 console.log('\n【4】PSQI 专用计分');
 const psqiAns = {
   psq1: '23:30', psq2: 60, psq3: '07:00', psq4: 5,
