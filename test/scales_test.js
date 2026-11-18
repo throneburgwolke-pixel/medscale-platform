@@ -221,17 +221,18 @@ ok(r.dimensions.ee.score === null && r.dimensions.dp.score === 6 && r.dimensions
   'MBI-HSS 单题漏答只影响所属维度，其余维度仍可计分', r.dimensions);
 ok(validateAnswers(mbi, {}).length === 17, 'MBI-HSS 空卷 17 道必答题全部被校验拦截');
 
-/* 科研专项工具：FRAS / MMAS-8 / ZBI / PANSS / 一般资料 */
-const fras = T('fras-54');
+/* 科研专项工具：C-FRAS / MMAS-8 / ZBI / PANSS / 一般资料 */
+const fras = T('fras-32cn');
 r = scoreResponse(fras, all(fras, 1));
-ok(r.total === 66, 'FRAS 全选「非常不同意」= 66 分（4 个反向题各得 4 分）', r.total);
+ok(r.total === 32, 'C-FRAS 全选「非常不同意」= 32 分（32 条全正向，无反向换算）', r.total);
 r = scoreResponse(fras, all(fras, 4));
-ok(r.total === 204, 'FRAS 全选「非常同意」= 204 分', r.total);
-const frasRev = all(fras, 4);
-frasRev.fras33 = 1;
-ok(scoreResponse(fras, frasRev).total === 207, 'FRAS 第 33 题反向计分：改选最低后总分 204→207', scoreResponse(fras, frasRev).total);
-ok(fras.dimensions.length === 1 && fras.dimensions[0].id === 'total',
-  'FRAS 只计总分，不按二手题库自行拆分维度');
+ok(r.total === 128, 'C-FRAS 全选「非常同意」= 128 分', r.total);
+ok(r.dimensions.fcps.score === 92 && r.dimensions.user.score === 12 && r.dimensions.mpo.score === 16 && r.dimensions.amma.score === 8,
+  'C-FRAS 四维度满分：FCPS 92 / USER 12 / MPO 16 / AMMA 8', r.dimensions);
+ok(fras.items.filter(function (it) { return it.reverse; }).length === 0,
+  'C-FRAS 32 条全部正向计分，无反向题');
+ok(fras.dimensions.length === 4 && fras.dimensions[0].items.length === 23,
+  'C-FRAS 按李玉丽 4 维度结构（FCPS 23 题）');
 
 const mmas = T('mmas-8');
 ok(scoreResponse(mmas, all(mmas, 0)).total === 0, 'MMAS-8 全选最差 = 0 分');
